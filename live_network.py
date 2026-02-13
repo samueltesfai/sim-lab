@@ -6,6 +6,7 @@ from typing import Literal
 import networkx as nx
 import matplotlib.pyplot as plt
 import argparse
+from matplotlib.lines import Line2D
 
 from sim import World, init_world
 
@@ -91,54 +92,186 @@ class LiveNetworkViz:
             raise ValueError(f"Unknown color mode: {mode}")
 
     def _compute_stats(self):
-        vals = [a.beliefs[self.claim_id] for a in self.world.agents]
+        # beliefs
+        vals_by_id = {a.id: a.beliefs[self.claim_id] for a in self.world.agents}
+        vals = list(vals_by_id.values())
         n = len(vals)
         mean = sum(vals) / n
         var = sum((x - mean) ** 2 for x in vals) / n
         std = math.sqrt(var)
         mn, mx = min(vals), max(vals)
-        return mean, std, mn, mx
 
-    def draw(self):
-        # Pull beliefs
-        beliefs = {a.id: a.beliefs[self.claim_id] for a in self.world.agents}
-
-        # Node colors
-        node_colors = [self.node_color(beliefs[n], mode="truth_rg", truth=self.world.truths.get(self.claim_id, False)) for n in self.G.nodes()]
-
-        # Node sizes by out-degree (scaled)
-        degrees = dict(self.G.out_degree())
-        node_sizes = [200 + 120 * degrees[n] for n in self.G.nodes()]
-
-        self.ax.clear()
-
-        # Draw edges first
-        nx.draw_networkx_edges(self.G, self.pos, ax=self.ax, alpha=0.25, arrows=False)
-
-        # Draw nodes
-        nx.draw_networkx_nodes(
-            self.G,
-            self.pos,
-            ax=self.ax,
-            node_color=node_colors,
-            node_size=node_sizes,
-            linewidths=1.0,
-        )
-
-        # Optional: labels (turn off if cluttered)
-        # nx.draw_networkx_labels(self.G, self.pos, ax=self.ax, font_size=8)
-
-        mean, std, mn, mx = self._compute_stats()
-        truth = 1.0 if self.world.truths.get(self.claim_id, False) else 0.0
+        truth_bool = self.world.truths.get(self.claim_id, False)
+        truth = 1.0 if truth_bool else 0.0
         err = abs(truth - mean)
 
+        # last step (safe on tick 0)
+        ls = self.world.last_step or {}
+        observed_ids = ls.get("observed_ids", [])
+        verified_ids = ls.get("verified_ids", [])
+        heard = ls.get("heard_edges", [])
+
+        heard_edges = [(s, r) for (s, r, cid) in heard if cid == self.claim_id]
+        n_obs = len(observed_ids)
+        n_ver = len(verified_ids)
+        n_hear = len(heard_edges)
+
+        # movers (only if step provides before/after)
+        before = ls.get("belief_before", {})
+        after = ls.get("belief_after", vals_by_id)
+
+        movers = []
+        for aid, b0 in before.items():
+            b1 = after.get(aid, b0)
+            movers.append((aid, b1 - b0))
+        movers.sort(key=lambda t: abs(t[1]), reverse=True)
+        top_movers = movers[:3]
+
+        # quick “mass near extremes” metrics (optional but helpful)
+        frac_low = sum(v < 0.2 for v in vals) / n
+        frac_high = sum(v > 0.8 for v in vals) / n
+
+        return {
+            "n": n,
+            "mean": mean,
+            "std": std,
+            "min": mn,
+            "max": mx,
+            "truth": truth,
+            "truth_bool": truth_bool,
+            "err": err,
+            "observed_ids": observed_ids,
+            "verified_ids": verified_ids,
+            "heard_edges": heard_edges,
+            "n_obs": n_obs,
+            "n_ver": n_ver,
+            "n_hear": n_hear,
+            "top_movers": top_movers,
+            "frac_low": frac_low,
+            "frac_high": frac_high,
+        }
+
+
+    def draw(self):
+        # --- collect beliefs once ---
+        beliefs = {a.id: a.beliefs[self.claim_id] for a in self.world.agents}
+
+        # --- colors / sizes ---
+        truth_bool = self.world.truths.get(self.claim_id, False)
+        node_colors = [
+            self.node_color(beliefs[n], mode="gray", truth=truth_bool)
+            for n in self.G.nodes()
+        ]
+
+        degrees = dict(self.G.out_degree())
+        node_sizes = [200 + 120 * degrees.get(n, 0) for n in self.G.nodes()]
+
+        # --- stats + per-tick annotations (from last_step) ---
+        stats = self._compute_stats()
+
+        observed_ids = stats["observed_ids"]
+        verified_ids = stats["verified_ids"]
+        active_edges = stats["heard_edges"]  # already filtered to claim_id in _compute_stats
+
+        # optional: highlight receivers (useful to see “who got influenced” this tick)
+        heard_receivers = list({r for (_s, r) in active_edges})
+
+        # --- clear frame ---
+        self.ax.clear()
+
+        # --- base edges ---
+        nx.draw_networkx_edges(
+            self.G, self.pos, ax=self.ax,
+            alpha=0.20, arrows=False
+        )
+
+        # --- active edges overlay (communication this tick) ---
+        if active_edges:
+            nx.draw_networkx_edges(
+                self.G, self.pos, ax=self.ax,
+                edgelist=active_edges,
+                alpha=0.85, width=2.5, arrows=False
+            )
+
+        # --- base nodes ---
+        nx.draw_networkx_nodes(
+            self.G, self.pos, ax=self.ax,
+            node_color=node_colors,
+            node_size=node_sizes,
+            linewidths=0.8,
+        )
+
+        # --- receiver ring (optional) ---
+        if heard_receivers:
+            nx.draw_networkx_nodes(
+                self.G, self.pos, ax=self.ax,
+                nodelist=heard_receivers,
+                node_color="none",
+                edgecolors="orange",
+                linewidths=1.8,
+                node_size=[(200 + 120 * degrees.get(n, 0)) * 1.08 for n in heard_receivers],
+            )
+
+        # --- observed ring ---
+        if observed_ids:
+            nx.draw_networkx_nodes(
+                self.G, self.pos, ax=self.ax,
+                nodelist=observed_ids,
+                node_color="none",
+                edgecolors="deepskyblue",
+                linewidths=2.5,
+                node_size=[(200 + 120 * degrees.get(n, 0)) * 1.15 for n in observed_ids],
+            )
+
+        # --- verified ring ---
+        if verified_ids:
+            nx.draw_networkx_nodes(
+                self.G, self.pos, ax=self.ax,
+                nodelist=verified_ids,
+                node_color="none",
+                edgecolors="magenta",
+                linewidths=2.5,
+                node_size=[(200 + 120 * degrees.get(n, 0)) * 1.25 for n in verified_ids],
+            )
+
+        # --- HUD text ---
+        movers_str = ", ".join([f"{aid}:{db:+.3f}" for aid, db in stats["top_movers"]])
+        hud = (
+            f"events: hear={stats['n_hear']} obs={stats['n_obs']} ver={stats['n_ver']}\n"
+            f"extremes: <0.2={stats['frac_low']:.2f}  >0.8={stats['frac_high']:.2f}\n"
+            f"top movers: {movers_str}"
+        )
+        self.ax.text(
+            0.02, 0.98, hud,
+            transform=self.ax.transAxes,
+            va="top", ha="left",
+            fontsize=9,
+            bbox=dict(boxstyle="round", facecolor="white", alpha=0.7, edgecolor="none"),
+        )
+
+        # --- legend (rings) ---
+        handles = [
+            Line2D([0], [0], marker="o", color="w", label="observe",
+                markerfacecolor="none", markeredgecolor="deepskyblue",
+                markersize=10, linewidth=0),
+            Line2D([0], [0], marker="o", color="w", label="verify",
+                markerfacecolor="none", markeredgecolor="magenta",
+                markersize=10, linewidth=0),
+            Line2D([0], [0], marker="o", color="w", label="heard (recv)",
+                markerfacecolor="none", markeredgecolor="orange",
+                markersize=10, linewidth=0),
+        ]
+        self.ax.legend(handles=handles, loc="lower left", framealpha=0.7)
+
+        # --- title ---
         self.ax.set_title(
             f"tick={self.world.tick}  "
-            f"mean={mean:.3f} std={std:.3f} min={mn:.3f} max={mx:.3f}  "
-            f"|truth-mean|={err:.3f}"
+            f"mean={stats['mean']:.3f} std={stats['std']:.3f} "
+            f"min={stats['min']:.3f} max={stats['max']:.3f}  "
+            f"|truth-mean|={stats['err']:.3f}"
         )
-        self.ax.axis("off")
 
+        self.ax.axis("off")
         self.fig.canvas.draw_idle()
 
 def run_live(world, steps: int = 500, claim_id: int = 0, draw_every: int = 1, layout_seed: int = 0, pause_time: float = 0.001):
