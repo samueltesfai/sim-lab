@@ -158,6 +158,14 @@ class World:
     
     def __repr__(self):        return f"World(tick={self.tick}, agents={len(self._agents)}, truths={self.truths}, network={dict(self.network)})"
 
+    @property
+    def agents(self) -> list[Agent]:
+        return list(self._agents.values())
+    
+    @property
+    def edges(self) -> list[tuple[int, int]]:
+        return [(src, dest) for src, nei in self.network.items() for dest in nei]
+
     def deliver_communicate(self, sender_id: int, receiver_id: int, claim_id: int):
         """
         Handle the reception of a communicated claim from one agent to another, allowing the receiving agent to receive social evidence based on the sending agent's beliefs and some noise.
@@ -223,10 +231,10 @@ class World:
         self.last_step = {
             "tick": self.tick,
             "claim_id": subject_claim_id,
-            "n_observe": 0,
-            "n_verify": 0,
-            "n_hear": 0,
             "n_updates": 0,
+            "observed_ids": [],
+            "verified_ids": [],
+            "heard_edges": [],
             "belief_before": belief_before,
         }
 
@@ -239,19 +247,19 @@ class World:
         for observer in observers:
             claim_id = self.rng.choice(list(self.truths.keys()))
             observer.observe(self, claim_id)
-            self.last_step["n_observe"] += 1
+            self.last_step["observed_ids"].append(observer.id)
             updated_agents.add(observer.id)
         
         for verifier in verifiers:
             claim_id = self.rng.choice(list(self.truths.keys()))
             verifier.verify(self, claim_id)
-            self.last_step["n_verify"] += 1
+            self.last_step["verified_ids"].append(verifier.id)
             updated_agents.add(verifier.id)
 
         for sender_id, receiver_id in interactions:
             claim_id = self.rng.choice(list(self.truths.keys()))
             self.deliver_communicate(sender_id, receiver_id, claim_id)
-            self.last_step["n_hear"] += 1
+            self.last_step["heard_edges"].append((sender_id, receiver_id, claim_id))
             updated_agents.add(receiver_id)
 
         for agent_id in updated_agents:
@@ -328,7 +336,7 @@ class World:
             f"q10={q10:.3f} q50={q50:.3f} q90={q90:.3f} | "
             f"<0.2={low:.2f} >0.8={high:.2f} | "
             f"Δabs_mean={mean_abs_delta:.4f} Δmax={max_abs_delta:.4f} | "
-            f"events: hear={self.last_step['n_hear']} obs={self.last_step['n_observe']} ver={self.last_step['n_verify']} updates={self.last_step['n_updates']}"
+            f"events: hear={len(self.last_step['heard_edges'])} obs={len(self.last_step['observed_ids'])} ver={len(self.last_step['verified_ids'])} updates={self.last_step['n_updates']}"
         )
 
         # optional second line with “who changed / who’s connected”
