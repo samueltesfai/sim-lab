@@ -155,6 +155,7 @@ class World:
         self.noise = {'observe': 0.0, 'hear': 0.0, 'verify': 0.0, 'action': 0.0} | (noise or {})
         self.truths = truths
         self.network = self._generate_dummy_network(agents) # TODO: We can implement a more complex network generation mechanism here, potentially based on real-world social network structures or using a configurable graph model.
+        self.subject_claim_id = 0 # for now we just track one claim, but we can easily extend this to multiple claims and track them separately in the logs and metrics.
     
     def __repr__(self):        return f"World(tick={self.tick}, agents={len(self._agents)}, truths={self.truths}, network={dict(self.network)})"
 
@@ -224,13 +225,11 @@ class World:
         """
         # TODO: We can implement a more complex event generation mechanism here, potentially based on real-world news cycles or using a configurable event model. For now, we will just randomly select some agents to observe and verify the claim, and randomly select some interactions for communication.
 
-        subject_claim_id = next(iter(self.truths.keys())) # for now we just track one claim, but we can easily extend this to multiple claims and track them separately in the logs and metrics.
-
-        belief_before = {aid: a.beliefs[subject_claim_id] for aid, a in self._agents.items()}
+        belief_before = {aid: a.beliefs[self.subject_claim_id] for aid, a in self._agents.items()}
 
         self.last_step = {
             "tick": self.tick,
-            "claim_id": subject_claim_id,
+            "claim_id": self.subject_claim_id,
             "n_updates": 0,
             "observed_ids": [],
             "verified_ids": [],
@@ -266,7 +265,7 @@ class World:
             self._agents[agent_id].update_beliefs()
             self.last_step["n_updates"] += 1
 
-        belief_after = {aid: a.beliefs[subject_claim_id] for aid, a in self._agents.items()}
+        belief_after = {aid: a.beliefs[self.subject_claim_id] for aid, a in self._agents.items()}
         self.last_step["belief_after"] = belief_after
 
         self.tick += 1
