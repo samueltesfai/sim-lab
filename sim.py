@@ -21,7 +21,7 @@ class Memory:
 class Agent:
     def __init__(self, id: int):
         self.id = id
-        self.beliefs: defaultdict[int, float] = defaultdict(lambda: 0.5) # Can map claim IDs to Belief object or just single float representing confidence level
+        self.beliefs: defaultdict[int, float] = defaultdict(lambda: random.random()) # Can map claim IDs to Belief object or just single float representing confidence level
         self.trust: defaultdict[int, float] = defaultdict(lambda: 0.5)  # default trust level for other agents
         self.memory: list[Memory] = []
         self._mem_cursor = 0 # Cursor to track which memories have been processed for belief updates
@@ -166,6 +166,9 @@ class World:
     @property
     def edges(self) -> list[tuple[int, int]]:
         return [(src, dest) for src, nei in self.network.items() for dest in nei]
+    
+    def get_agent(self, agent_id: int) -> Agent:
+        return self._agents[agent_id]
 
     def deliver_communicate(self, sender_id: int, receiver_id: int, claim_id: int):
         """
