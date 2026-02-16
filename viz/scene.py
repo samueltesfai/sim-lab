@@ -6,6 +6,10 @@ from sim import World
 
 @dataclass(frozen=True)
 class Scene:
+    """
+    A handy container for attributes related to graph data structure. Along with `build_scene` factory, helps isolate
+    graph creation logic (i.e. testing different layouts).
+    """
     G: nx.DiGraph
     pos: dict[int, tuple[float, float]]
     nodes: list[int]
