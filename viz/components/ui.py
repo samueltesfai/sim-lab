@@ -1,6 +1,6 @@
 from viz.components.base import _VizComponent
 from viz.scene import Scene
-from viz.viewmodel import ViewModel
+from viz.view_model import ViewModel
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 from matplotlib.axes import Axes

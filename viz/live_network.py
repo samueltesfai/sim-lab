@@ -1,19 +1,13 @@
 # viz/live_network.py
-from __future__ import annotations
+from __future__ import annotation
 
-import math
-from typing import Literal
-import networkx as nx
 import matplotlib.pyplot as plt
-from matplotlib.lines import Line2D
-from matplotlib.collections import LineCollection
-from matplotlib.patches import FancyArrowPatch
 import numpy as np
 
 from sim import World
 
 from viz.scene import build_scene
-from viz.viewmodel import compute_viewmodel
+from viz.view_model import compute_viewmodel
 from viz.components.graph import BaseEdges, Nodes
 from viz.components.overlays import RingOverlay, ActiveEdges
 from viz.components.ui import HUDText, LegendComponent

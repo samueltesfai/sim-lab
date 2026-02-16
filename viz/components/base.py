@@ -1,7 +1,6 @@
-
 from abc import ABC, abstractmethod
 from viz.scene import Scene
-from viz.viewmodel import ViewModel
+from viz.view_model import ViewModel
 from matplotlib.axes import Axes
 import matplotlib.pyplot as plt
 

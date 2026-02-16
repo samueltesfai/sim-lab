@@ -1,4 +1,3 @@
-# Experimental simulation of a world with agents, attempting to model the diffision of (mis)information in a social network.
 from dataclasses import dataclass
 from typing import Any, Literal
 from collections import defaultdict

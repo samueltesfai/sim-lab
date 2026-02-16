@@ -1,4 +1,3 @@
-
 from viz import run_live
 import argparse
 from sim import init_world

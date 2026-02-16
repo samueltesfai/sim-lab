@@ -1,5 +1,3 @@
-
-
 from dataclasses import dataclass
 from viz.scene import Scene
 from sim import World
