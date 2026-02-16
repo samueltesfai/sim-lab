@@ -18,9 +18,10 @@ class Memory:
 
 
 class Agent:
-    def __init__(self, id: int):
+    def __init__(self, id: int, rng_seed: int = 0):
         self.id = id
-        self.beliefs: defaultdict[int, float] = defaultdict(lambda: random.random()) # Can map claim IDs to Belief object or just single float representing confidence level
+        self.rng = random.Random(rng_seed)
+        self.beliefs: defaultdict[int, float] = defaultdict(lambda: self.rng.random()) # Can map claim IDs to Belief object or just single float representing confidence level
         self.trust: defaultdict[int, float] = defaultdict(lambda: 0.5)  # default trust level for other agents
         self.memory: list[Memory] = []
         self._mem_cursor = 0 # Cursor to track which memories have been processed for belief updates
@@ -347,7 +348,7 @@ class World:
 
 
 def init_world(num_agents: int = 50, rng_seed: int = 0) -> World:
-    agents = [Agent(id=i) for i in range(num_agents)]
+    agents = [Agent(id=i, rng_seed=rng_seed + i + 1) for i in range(num_agents)] # add i to differ seed, and 1 to offset from world rng
 
     truths = {0: True}  # single claim for POC
 
