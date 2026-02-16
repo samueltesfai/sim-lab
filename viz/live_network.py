@@ -1,6 +1,3 @@
-# viz/live_network.py
-from __future__ import annotation
-
 import matplotlib.pyplot as plt
 import numpy as np
 
