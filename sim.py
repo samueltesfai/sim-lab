@@ -1,4 +1,3 @@
-# Experimental simulation of a world with agents, attempting to model the diffision of (mis)information in a social network.
 from dataclasses import dataclass
 from typing import Any, Literal
 from collections import defaultdict
@@ -19,9 +18,10 @@ class Memory:
 
 
 class Agent:
-    def __init__(self, id: int):
+    def __init__(self, id: int, rng_seed: int = 0):
         self.id = id
-        self.beliefs: defaultdict[int, float] = defaultdict(lambda: 0.5) # Can map claim IDs to Belief object or just single float representing confidence level
+        self.rng = random.Random(rng_seed)
+        self.beliefs: defaultdict[int, float] = defaultdict(lambda: self.rng.random()) # Can map claim IDs to Belief object or just single float representing confidence level
         self.trust: defaultdict[int, float] = defaultdict(lambda: 0.5)  # default trust level for other agents
         self.memory: list[Memory] = []
         self._mem_cursor = 0 # Cursor to track which memories have been processed for belief updates
@@ -155,8 +155,20 @@ class World:
         self.noise = {'observe': 0.0, 'hear': 0.0, 'verify': 0.0, 'action': 0.0} | (noise or {})
         self.truths = truths
         self.network = self._generate_dummy_network(agents) # TODO: We can implement a more complex network generation mechanism here, potentially based on real-world social network structures or using a configurable graph model.
+        self.subject_claim_id = 0 # for now we just track one claim, but we can easily extend this to multiple claims and track them separately in the logs and metrics.
     
     def __repr__(self):        return f"World(tick={self.tick}, agents={len(self._agents)}, truths={self.truths}, network={dict(self.network)})"
+
+    @property
+    def agents(self) -> list[Agent]:
+        return list(self._agents.values())
+    
+    @property
+    def edges(self) -> list[tuple[int, int]]:
+        return [(src, dest) for src, nei in self.network.items() for dest in nei]
+    
+    def get_agent(self, agent_id: int) -> Agent:
+        return self._agents[agent_id]
 
     def deliver_communicate(self, sender_id: int, receiver_id: int, claim_id: int):
         """
@@ -216,17 +228,15 @@ class World:
         """
         # TODO: We can implement a more complex event generation mechanism here, potentially based on real-world news cycles or using a configurable event model. For now, we will just randomly select some agents to observe and verify the claim, and randomly select some interactions for communication.
 
-        subject_claim_id = next(iter(self.truths.keys())) # for now we just track one claim, but we can easily extend this to multiple claims and track them separately in the logs and metrics.
-
-        belief_before = {aid: a.beliefs[subject_claim_id] for aid, a in self._agents.items()}
+        belief_before = {aid: a.beliefs[self.subject_claim_id] for aid, a in self._agents.items()}
 
         self.last_step = {
             "tick": self.tick,
-            "claim_id": subject_claim_id,
-            "n_observe": 0,
-            "n_verify": 0,
-            "n_hear": 0,
+            "claim_id": self.subject_claim_id,
             "n_updates": 0,
+            "observed_ids": [],
+            "verified_ids": [],
+            "heard_edges": [],
             "belief_before": belief_before,
         }
 
@@ -239,26 +249,26 @@ class World:
         for observer in observers:
             claim_id = self.rng.choice(list(self.truths.keys()))
             observer.observe(self, claim_id)
-            self.last_step["n_observe"] += 1
+            self.last_step["observed_ids"].append(observer.id)
             updated_agents.add(observer.id)
         
         for verifier in verifiers:
             claim_id = self.rng.choice(list(self.truths.keys()))
             verifier.verify(self, claim_id)
-            self.last_step["n_verify"] += 1
+            self.last_step["verified_ids"].append(verifier.id)
             updated_agents.add(verifier.id)
 
         for sender_id, receiver_id in interactions:
             claim_id = self.rng.choice(list(self.truths.keys()))
             self.deliver_communicate(sender_id, receiver_id, claim_id)
-            self.last_step["n_hear"] += 1
+            self.last_step["heard_edges"].append((sender_id, receiver_id, claim_id))
             updated_agents.add(receiver_id)
 
         for agent_id in updated_agents:
             self._agents[agent_id].update_beliefs()
             self.last_step["n_updates"] += 1
 
-        belief_after = {aid: a.beliefs[subject_claim_id] for aid, a in self._agents.items()}
+        belief_after = {aid: a.beliefs[self.subject_claim_id] for aid, a in self._agents.items()}
         self.last_step["belief_after"] = belief_after
 
         self.tick += 1
@@ -328,7 +338,7 @@ class World:
             f"q10={q10:.3f} q50={q50:.3f} q90={q90:.3f} | "
             f"<0.2={low:.2f} >0.8={high:.2f} | "
             f"Δabs_mean={mean_abs_delta:.4f} Δmax={max_abs_delta:.4f} | "
-            f"events: hear={self.last_step['n_hear']} obs={self.last_step['n_observe']} ver={self.last_step['n_verify']} updates={self.last_step['n_updates']}"
+            f"events: hear={len(self.last_step['heard_edges'])} obs={len(self.last_step['observed_ids'])} ver={len(self.last_step['verified_ids'])} updates={self.last_step['n_updates']}"
         )
 
         # optional second line with “who changed / who’s connected”
@@ -338,7 +348,7 @@ class World:
 
 
 def init_world(num_agents: int = 50, rng_seed: int = 0) -> World:
-    agents = [Agent(id=i) for i in range(num_agents)]
+    agents = [Agent(id=i, rng_seed=rng_seed + i + 1) for i in range(num_agents)] # add i to differ seed, and 1 to offset from world rng
 
     truths = {0: True}  # single claim for POC
 
