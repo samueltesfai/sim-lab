@@ -14,11 +14,12 @@ class ViewModel:
 
     observed_ids: list[int]
     verified_ids: list[int]
-    active_edges: list[tuple[int, int]]     # (sender, receiver) for claim
+    active_edges: list[tuple[int, int]]  # (sender, receiver) for claim
     heard_receivers: list[int]
 
-    stats: dict[str, float]                  # mean/min/max
-    pos: dict[int, tuple[float, float]]      # node positions (can change)
+    stats: dict[str, float]  # mean/min/max
+    pos: dict[int, tuple[float, float]]  # node positions (can change)
+
 
 def compute_viewmodel(world: World, scene: Scene, claim_id: int):
     ls = world.last_step or {}

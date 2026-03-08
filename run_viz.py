@@ -15,5 +15,11 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     world = init_world(num_agents=args.num_agents, rng_seed=args.rng_seed)
-    run_live(world, steps=args.steps, claim_id=args.claim_id, draw_every=args.draw_every, layout_seed=args.layout_seed, pause_time=args.pause_time)
-    
+    run_live(
+        world,
+        steps=args.steps,
+        claim_id=args.claim_id,
+        draw_every=args.draw_every,
+        layout_seed=args.layout_seed,
+        pause_time=args.pause_time,
+    )

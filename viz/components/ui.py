@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 from matplotlib.axes import Axes
 
+
 class HUDText(_VizComponent):
     def __init__(self, scene: Scene, z: int = 10):
         super().__init__(scene, z=z)
@@ -12,9 +13,12 @@ class HUDText(_VizComponent):
 
     def add_to_canvas(self, ax: Axes, fig: plt.Figure) -> None:
         self.txt = ax.text(
-            0.02, 0.98, "",
+            0.02,
+            0.98,
+            "",
             transform=ax.transAxes,
-            va="top", ha="left",
+            va="top",
+            ha="left",
             fontsize=9,
             bbox=dict(boxstyle="round", facecolor="white", alpha=0.7, edgecolor="none"),
             zorder=self.z,
@@ -38,15 +42,39 @@ class LegendComponent(_VizComponent):
 
     def add_to_canvas(self, ax: Axes, fig: plt.Figure) -> None:
         handles = [
-            Line2D([0], [0], marker="o", color="w", label="observe",
-                   markerfacecolor="none", markeredgecolor="deepskyblue",
-                   markersize=10, linewidth=0),
-            Line2D([0], [0], marker="o", color="w", label="verify",
-                   markerfacecolor="none", markeredgecolor="magenta",
-                   markersize=10, linewidth=0),
-            Line2D([0], [0], marker="o", color="w", label="heard (recv)",
-                   markerfacecolor="none", markeredgecolor="orange",
-                   markersize=10, linewidth=0),
+            Line2D(
+                [0],
+                [0],
+                marker="o",
+                color="w",
+                label="observe",
+                markerfacecolor="none",
+                markeredgecolor="deepskyblue",
+                markersize=10,
+                linewidth=0,
+            ),
+            Line2D(
+                [0],
+                [0],
+                marker="o",
+                color="w",
+                label="verify",
+                markerfacecolor="none",
+                markeredgecolor="magenta",
+                markersize=10,
+                linewidth=0,
+            ),
+            Line2D(
+                [0],
+                [0],
+                marker="o",
+                color="w",
+                label="heard (recv)",
+                markerfacecolor="none",
+                markeredgecolor="orange",
+                markersize=10,
+                linewidth=0,
+            ),
         ]
         self.legend = ax.legend(handles=handles, loc="lower left", framealpha=0.7)
         self.legend.set_zorder(self.z)
