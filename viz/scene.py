@@ -10,11 +10,12 @@ class Scene:
     A handy container for attributes related to graph data structure. Along with `build_scene` factory, helps isolate
     graph creation logic (i.e. testing different layouts).
     """
+
     G: nx.DiGraph
     pos: dict[int, tuple[float, float]]
     nodes: list[int]
-    degrees: dict[int, int]  
-    sizes_base: np.ndarray         
+    degrees: dict[int, int]
+    sizes_base: np.ndarray
 
 
 def build_scene(world: World, layout_seed: int = 0) -> Scene:
