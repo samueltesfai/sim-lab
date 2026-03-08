@@ -7,8 +7,17 @@ from matplotlib.axes import Axes
 import numpy as np
 from typing import Literal
 
+
 class RingOverlay(_VizComponent):
-    def __init__(self, scene: Scene, color: str, scale: float, key: Literal["observed_ids", "verified_ids", "heard_receivers"], lw: float = 2.0, z: int = 5):
+    def __init__(
+        self,
+        scene: Scene,
+        color: str,
+        scale: float,
+        key: Literal["observed_ids", "verified_ids", "heard_receivers"],
+        lw: float = 2.0,
+        z: int = 5,
+    ):
         super().__init__(scene, z=z)
         self.color = color
         self.scale = scale
@@ -18,7 +27,8 @@ class RingOverlay(_VizComponent):
 
     def add_to_canvas(self, ax: Axes, fig: plt.Figure) -> None:
         self.sc = ax.scatter(
-            [], [],
+            [],
+            [],
             s=[],
             facecolors="none",
             edgecolors=self.color,
@@ -41,7 +51,7 @@ class RingOverlay(_VizComponent):
         pts = np.array([pos[n] for n in nodelist], dtype=float)
         sizes = np.array(
             [(200 + 120 * self.scene.degrees.get(n, 0)) * self.scale for n in nodelist],
-            dtype=float
+            dtype=float,
         )
 
         self.sc.set_offsets(pts)
@@ -56,6 +66,7 @@ class ActiveEdges(_VizComponent):
       - active_edges: list[tuple[int, int]]  (sender, receiver)
       - pos: dict[int, tuple[float, float]]  node -> (x, y)
     """
+
     def __init__(
         self,
         scene: Scene,
@@ -115,7 +126,7 @@ class ActiveEdges(_VizComponent):
         # For bidirectional detection this tick
         active_set = set(active_edges)
 
-        for (u, v) in active_edges:
+        for u, v in active_edges:
             if u not in pos or v not in pos:
                 continue
 
@@ -128,7 +139,8 @@ class ActiveEdges(_VizComponent):
                 rad = self.rad if u < v else -self.rad
 
             patch = FancyArrowPatch(
-                (x1, y1), (x2, y2),
+                (x1, y1),
+                (x2, y2),
                 arrowstyle="-|>",
                 mutation_scale=self.arrowsize,
                 linewidth=self.lw,

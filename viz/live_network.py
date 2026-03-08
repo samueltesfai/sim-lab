@@ -10,6 +10,7 @@ from viz.components.overlays import RingOverlay, ActiveEdges
 from viz.components.ui import HUDText, LegendComponent
 from viz.components.interaction import HoverTooltip
 
+
 class LiveNetworkViz:
     def __init__(self, world: World, claim_id: int = 0, layout_seed: int = 0):
         self.world = world
@@ -21,11 +22,19 @@ class LiveNetworkViz:
 
         self.components = [
             BaseEdges(self.scene, alpha=0.15, lw=1.0, z=1),
-            Nodes(self.scene, color_mode="gray", z=2),  # let Nodes pull nodes/pos/sizes from scene/vm
+            Nodes(
+                self.scene, color_mode="gray", z=2
+            ),  # let Nodes pull nodes/pos/sizes from scene/vm
             ActiveEdges(self.scene, key="active_edges", z=3, rad=0.08, arrowsize=14),
-            RingOverlay(self.scene, color="orange",      scale=1.08, key="heard_receivers", z=4),
-            RingOverlay(self.scene, color="deepskyblue", scale=1.15, key="observed_ids",    z=5),
-            RingOverlay(self.scene, color="magenta",     scale=1.25, key="verified_ids",    z=6),
+            RingOverlay(
+                self.scene, color="orange", scale=1.08, key="heard_receivers", z=4
+            ),
+            RingOverlay(
+                self.scene, color="deepskyblue", scale=1.15, key="observed_ids", z=5
+            ),
+            RingOverlay(
+                self.scene, color="magenta", scale=1.25, key="verified_ids", z=6
+            ),
             HUDText(self.scene, z=10),
             LegendComponent(self.scene, z=11),
             HoverTooltip(self.scene, z=12),
@@ -57,7 +66,14 @@ class LiveNetworkViz:
         self.fig.canvas.draw_idle()
 
 
-def run_live(world, steps: int = 500, claim_id: int = 0, draw_every: int = 1, layout_seed: int = 0, pause_time: float = 0.001):
+def run_live(
+    world,
+    steps: int = 500,
+    claim_id: int = 0,
+    draw_every: int = 1,
+    layout_seed: int = 0,
+    pause_time: float = 0.001,
+):
     """
     Simple live loop using plt.pause.
     """
@@ -74,4 +90,3 @@ def run_live(world, steps: int = 500, claim_id: int = 0, draw_every: int = 1, la
 
     plt.ioff()
     plt.show()
-
