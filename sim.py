@@ -20,7 +20,13 @@ class Memory:
 
 
 class Agent:
-    def __init__(self, id: int, rng_seed: int = 0):
+    def __init__(
+        self,
+        id: int,
+        rng_seed: int = 0,
+        p_observe: float = 0.05,
+        p_verify: float = 0.01,
+    ):
         self.id = id
         self.rng = random.Random(rng_seed)
         self.beliefs: defaultdict[int, float] = defaultdict(
@@ -33,6 +39,8 @@ class Agent:
         self._mem_cursor = (
             0  # Cursor to track which memories have been processed for belief updates
         )
+        self.p_observe = p_observe
+        self.p_verify = p_verify
 
     def __repr__(self):
         return f"Agent(id={self.id}, beliefs={dict(self.beliefs)}, trust={dict(self.trust)}, memory={len(self.memory)})"
@@ -136,6 +144,14 @@ class Agent:
         Periodically update the agent's beliefs based on accumulated memories.
 
         :param self:
+        :param eta: Learning rate
+        :type eta: float
+        :param w_observe: Weight for observation memories
+        :type w_observe: float
+        :param w_hear: Weight for hear memories
+        :type w_hear: float
+        :param w_verify: Weight for verify memories
+        :type w_verify: float
         """
 
         while self._mem_cursor < len(self.memory):
@@ -169,8 +185,6 @@ class World:
         self,
         agents: list[Agent],
         truths: dict[int, bool],
-        p_observe: float,
-        p_verify: float,
         k_interactions: int,
         rng_seed: int = 0,
         noise: dict[str, float] | None = None,
@@ -178,8 +192,6 @@ class World:
         self._agents = {a.id: a for a in agents}
         self.last_step: dict[str, Any] | None = {}
         self.tick = 0
-        self.p_observe = p_observe
-        self.p_verify = p_verify
         self.k_interactions = k_interactions
         self.rng = random.Random(rng_seed)
         self.noise = {"observe": 0.0, "hear": 0.0, "verify": 0.0, "action": 0.0} | (
@@ -281,16 +293,15 @@ class World:
             "belief_before": belief_before,
         }
 
+        # Sample randomly from total possible relationships (edges in the network)
         relationships = [(k, entry) for k, v in self.network.items() for entry in v]
         interactions = self.rng.sample(
             relationships, k=min(self.k_interactions, len(relationships))
         )
         observers = [
-            a for a in self._agents.values() if self.rng.random() < self.p_observe
+            a for a in self._agents.values() if self.rng.random() < a.p_observe
         ]
-        verifiers = [
-            a for a in self._agents.values() if self.rng.random() < self.p_verify
-        ]
+        verifiers = [a for a in self._agents.values() if self.rng.random() < a.p_verify]
         updated_agents = set()
 
         for observer in observers:
@@ -417,8 +428,6 @@ def init_world(num_agents: int = 50, rng_seed: int = 0) -> World:
     return World(
         agents=agents,
         truths=truths,
-        p_observe=0.05,
-        p_verify=0.01,
         k_interactions=num_agents * 2,
         rng_seed=rng_seed,
         noise=noise,
