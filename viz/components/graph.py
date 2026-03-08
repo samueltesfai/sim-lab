@@ -9,7 +9,12 @@ from typing import Literal
 
 
 class Nodes(_VizComponent):
-    def __init__(self, scene: Scene, color_mode: Literal["gray", "invert_gray", "truth_rg"] = "gray", z: int = 2):
+    def __init__(
+        self,
+        scene: Scene,
+        color_mode: Literal["gray", "invert_gray", "truth_rg"] = "gray",
+        z: int = 2,
+    ):
         super().__init__(scene, z=z)
         self.color_mode = color_mode
         self.sc = None  # PathCollection
@@ -18,7 +23,8 @@ class Nodes(_VizComponent):
         # Use initial positions (will be updated every tick anyway)
         xy = np.zeros((len(self.scene.nodes), 2), dtype=float)
         self.sc = ax.scatter(
-            xy[:, 0], xy[:, 1],
+            xy[:, 0],
+            xy[:, 1],
             s=self.scene.sizes_base,
             c=[(0.5, 0.5, 0.5)] * len(self.scene.nodes),
             edgecolors="black",
@@ -39,8 +45,11 @@ class Nodes(_VizComponent):
         truth = vm.truth_bool
         beliefs = vm.beliefs
         colors = np.array(
-            [self.node_color(beliefs.get(n, 0.5), mode=self.color_mode, truth=truth) for n in self.scene.nodes],
-            dtype=float
+            [
+                self.node_color(beliefs.get(n, 0.5), mode=self.color_mode, truth=truth)
+                for n in self.scene.nodes
+            ],
+            dtype=float,
         )
         self.sc.set_facecolors(colors)
 
@@ -59,13 +68,17 @@ class Nodes(_VizComponent):
 
         if alignment <= 0:
             intensity = abs(alignment)
-            return (1.0, intensity, 0.0)   # red -> yellow
+            return (1.0, intensity, 0.0)  # red -> yellow
         else:
             intensity = alignment
             return (1.0 - intensity, 1.0, 0.0)  # yellow -> green
 
     @staticmethod
-    def node_color(b: float, mode: Literal["gray", "invert_gray", "truth_rg"], truth: bool | None = None) -> tuple[float, float, float]:
+    def node_color(
+        b: float,
+        mode: Literal["gray", "invert_gray", "truth_rg"],
+        truth: bool | None = None,
+    ) -> tuple[float, float, float]:
         if mode == "gray":
             return Nodes._belief_to_gray(b, invert=False)
         if mode == "invert_gray":
@@ -75,13 +88,14 @@ class Nodes(_VizComponent):
                 raise ValueError("truth must be provided for truth_rg mode")
             return Nodes._color_truth_gradient(b, truth)
         raise ValueError(f"Unknown color mode: {mode}")
-    
+
 
 class BaseEdges(_VizComponent):
     """
     Fast base edges using a LineCollection.
     Assumes topology is static; if pos changes, we update the segments in update().
     """
+
     def __init__(self, scene: Scene, alpha: float = 0.15, lw: float = 1.0, z: int = 1):
         super().__init__(scene, z=z)
         self.alpha, self.lw = alpha, lw
@@ -90,7 +104,9 @@ class BaseEdges(_VizComponent):
 
     def add_to_canvas(self, ax: Axes, fig: plt.Figure) -> None:
         # initial segments (pos will come from first update)
-        self.lc = LineCollection([], linewidths=self.lw, alpha=self.alpha, zorder=self.z)
+        self.lc = LineCollection(
+            [], linewidths=self.lw, alpha=self.alpha, zorder=self.z
+        )
         ax.add_collection(self.lc)
 
     def update(self, vm: ViewModel) -> None:
@@ -99,9 +115,3 @@ class BaseEdges(_VizComponent):
         pos = vm.pos
         segs = [[pos[u], pos[v]] for (u, v) in self._edges]
         self.lc.set_segments(segs)
-
-
-
-    
-
-

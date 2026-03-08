@@ -33,7 +33,11 @@ class HoverTooltip(_VizComponent):
 
     def update(self, vm: ViewModel) -> None:
         self._vm = vm
-        if self.annot and self.annot.get_visible() and self._hover_last_node is not None:
+        if (
+            self.annot
+            and self.annot.get_visible()
+            and self._hover_last_node is not None
+        ):
             self._update_hover_for_node(self._hover_last_node)
 
     def _nearest_node_px(self, event) -> int | None:
@@ -115,7 +119,7 @@ class HoverTooltip(_VizComponent):
                 return "-"
             if len(xs) <= max_show:
                 return ", ".join(map(str, xs))
-            return ", ".join(map(str, xs[:max_show])) + f", …(+{len(xs)-max_show})"
+            return ", ".join(map(str, xs[:max_show])) + f", …(+{len(xs) - max_show})"
 
         tag_str = f" [{' '.join(tags)}]" if tags else ""
         text = (

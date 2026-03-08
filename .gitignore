@@ -21,6 +21,9 @@ venv/
 .venv/
 ENV/
 
+# uv
+.uv_cache/
+
 # Environment variables
 .env
 .env.*

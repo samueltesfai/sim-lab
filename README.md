@@ -36,24 +36,33 @@ The simulation is designed to be modular:
 ## Getting Started
 
 ### 1. **Set Up the Environment**
-Install the required dependencies using Conda:
+Install the required dependencies using uv:
 
 ```bash
-conda env create -f environment.yml
-conda activate base
+uv sync
+```
+
+Or if you don't have uv installed:
+
+```bash
+# Install uv (Linux/macOS)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Install dependencies
+uv sync
 ```
 
 ### 2. Run the Simulation
 Run the simulation with visualization:
 
-```python
-python run_viz.py
+```bash
+uv run python run_viz.py
 ```
 
 You can customize the simulation parameters using command-line arguments:
 
-```python
-python run_viz.py --num-agents 20 --steps 1000 --rng-seed 123
+```bash
+uv run python run_viz.py --num-agents 20 --steps 1000 --rng-seed 123
 ```
 
 ### 3. Experiment with Rules
