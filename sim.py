@@ -144,9 +144,36 @@ class Agent:
             world, MemoryType.VERIFIED, claim_id=claim_id, evidence=evidence
         )
 
+    def generate_candidate_actions(self, world: "World") -> list[Action]:
+        """
+        Generate a list of candidate actions for the agent to choose from.
+
+        :param self:
+        :param world: The world in which the agent is generating candidate actions
+        :type world: 'World'
+        :return: A list of candidate actions
+        :rtype: list[Action]
+        """
+        pass
+
+    def score_action(self, world: "World", action: Action) -> float:
+        """
+        Score an action based on the agent's current state and the world.
+
+        :param self:
+        :param world: The world in which the agent is scoring the action
+        :type world: 'World'
+        :param action: The action to score
+        :type action: Action
+        :return: The score of the action
+        :rtype: float
+        """
+        # Can delegate to a policy object for more complex scoring and extensibility
+        pass
+
     def choose_action(self, world: "World") -> Action:
         """
-        Choose an action to perform based on agent's current state and probabilities.
+        Choose an action based on the agent's current state and the world.
 
         :param self:
         :param world: The world in which the agent is choosing an action
@@ -154,7 +181,10 @@ class Agent:
         :return: The chosen action
         :rtype: Action
         """
-        pass
+        return max(
+            self.generate_candidate_actions(world),
+            key=lambda action: self.score_action(world, action),
+        )
 
     def act(self, world: "World", action: Action):
         """
