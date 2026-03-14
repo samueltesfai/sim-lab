@@ -32,6 +32,8 @@ class Action:
 
     def __post_init__(self):
         """Validate action parameters based on type."""
+        if isinstance(self.type, str):
+            self.type = ActionType(self.type)
         if self.type == ActionType.VERIFY and self.claim_id is None:
             raise ValueError("VERIFY action requires claim_id")
         if self.type == ActionType.COMMUNICATE:
@@ -58,7 +60,7 @@ class Agent:
         self,
         id: int,
         rng_seed: int = 0,
-        action_bias: dict[ActionType, float] | None = None,
+        action_preference: dict[ActionType, float] | None = None,
         action_cost: dict[ActionType, float] | None = None,
     ):
         self.id = id
@@ -79,8 +81,8 @@ class Agent:
             ActionType.BROADCAST: 1.0,
             ActionType.IDLE: 0.0,
         }
-        self.action_bias: dict[ActionType, float] = default_action_bias | (
-            action_bias or {}
+        self.action_preference: dict[ActionType, float] = default_action_bias | (
+            action_preference or {}
         )
         self.action_cost: dict[ActionType, float] = default_action_cost | (
             action_cost or {}
@@ -149,6 +151,87 @@ class Agent:
             world, MemoryType.VERIFIED, claim_id=claim_id, evidence=evidence
         )
 
+    def confidence(self, claim_id: int) -> float:
+        """
+        Calculate the confidence in a claim based on the agent's current beliefs [0.0, 1.0].
+
+        :param self:
+        :param claim_id: The ID of the claim
+        :type claim_id: int
+        :return: The confidence in the claim
+        :rtype: float
+        """
+        return abs(self.beliefs[claim_id] - 0.5) * 2
+
+    def uncertainty(self, claim_id: int) -> float:
+        """
+        Calculate the uncertainty in a claim based on the agent's current beliefs [0.0, 1.0].
+
+        :param self:
+        :param claim_id: The ID of the claim
+        :type claim_id: int
+        :return: The uncertainty in the claim
+        :rtype: float
+        """
+        return 1.0 - self.confidence(claim_id)
+
+    def disagreement(self, claim_id: int, agent_id: int) -> float:
+        """
+        Calculate the disagreement in a claim based on the agent's current beliefs [0.0, 1.0].
+
+        :param self:
+        :param claim_id: The ID of the claim
+        :type claim_id: int
+        :param agent_id: The ID of the agent
+        :type agent_id: int
+        :return: The disagreement in the claim
+        :rtype: float
+        """
+        return abs(self.beliefs[claim_id] - self.beliefs[agent_id])
+
+    def local_disagreement(self, claim_id: int, world: "World") -> float:
+        """
+        Calculate the local disagreement in a claim based on the agent's current beliefs and their neighbors' beliefs.
+
+        :param self:
+        :param claim_id: The ID of the claim
+        :type claim_id: int
+        :param world: The world in which the agent is generating candidate actions
+        :type world: 'World'
+        :return: The local disagreement in the claim
+        :rtype: float
+        """
+        return sum(
+            self.disagreement(claim_id, neighbor_id)
+            for neighbor_id in world.network[self.id]
+        ) / len(world.network[self.id])
+
+    def get_action_preference(self, world: "World", action: Action) -> float:
+        """
+        Get the preference for a given action.
+
+        :param world: The world in which the agent is generating candidate actions
+        :type world: 'World'
+        :param action: The action
+        :type action: Action
+        :return: The preference for the action
+        :rtype: float
+        """
+        return self.action_preference[action.type]
+
+    def get_action_cost(self, world: "World", action: Action) -> float:
+        """
+        Get the cost for a given action.
+
+        :param world: The world in which the agent is generating candidate actions
+        :type world: 'World'
+        :param action: The action
+        :type action: Action
+        :return: The cost for the action
+        :rtype: float
+        """
+        return self.action_cost[action.type]
+
     def generate_candidate_actions(self, world: "World") -> list[Action]:
         """
         Generate a list of candidate actions for the agent to choose from.
@@ -191,19 +274,29 @@ class Agent:
 
         match action.type:
             case ActionType.VERIFY:
-                uncertainty = 1.0 - abs(2 * self.beliefs[action.claim_id] - 1)
-                return (
-                    self.action_bias[action.type] * uncertainty
-                    - self.action_cost[action.type]
-                )
+                return self.get_action_preference(world, action) * self.uncertainty(
+                    action.claim_id
+                ) - self.get_action_cost(world, action)
             case ActionType.COMMUNICATE:
-                pass
+                return self.get_action_preference(world, action) * self.confidence(
+                    action.claim_id
+                ) * self.disagreement(
+                    action.claim_id, action.target_agent_id
+                ) - self.get_action_cost(world, action)
             case ActionType.BROADCAST:
-                pass
+                return self.get_action_preference(world, action) * self.confidence(
+                    action.claim_id
+                ) * self.local_disagreement(
+                    action.claim_id, world
+                ) - self.get_action_cost(world, action)
             case ActionType.IDLE:
-                return 0.0
+                return self.get_action_preference(world, action) - self.get_action_cost(
+                    world, action
+                )
             case _:
-                raise ValueError(f"Unknown action type: {action.type}")
+                raise ValueError(
+                    f"Unknown action type: {action.type} for action {action}"
+                )
 
     def choose_action(self, world: "World") -> Action:
         """
@@ -240,7 +333,9 @@ class Agent:
             case ActionType.IDLE:
                 pass  # Do nothing
             case _:
-                raise ValueError(f"Unknown action type: {action.type}")
+                raise ValueError(
+                    f"Unknown action type: {action.type} for action {action}"
+                )
 
     def update_beliefs(
         self,
