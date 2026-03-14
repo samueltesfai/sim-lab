@@ -69,19 +69,20 @@ class Agent:
         self.trust: defaultdict[int, float] = defaultdict(lambda: 0.5)
         self.memory: list[Memory] = []
         self._mem_cursor = 0  # Cursor to track memories for belief updates
-        default_action_bias = {
-            ActionType.VERIFY: 0.0,
-            ActionType.COMMUNICATE: 0.0,
-            ActionType.BROADCAST: 0.0,
+        default_action_preference = {
             ActionType.IDLE: 0.0,
+            ActionType.VERIFY: 0.9,
+            ActionType.COMMUNICATE: 0.7,
+            ActionType.BROADCAST: 0.5,
         }
+
         default_action_cost = {
-            ActionType.VERIFY: 1.0,
-            ActionType.COMMUNICATE: 1.0,
-            ActionType.BROADCAST: 1.0,
             ActionType.IDLE: 0.0,
+            ActionType.VERIFY: 0.35,
+            ActionType.COMMUNICATE: 0.15,
+            ActionType.BROADCAST: 0.30,
         }
-        self.action_preference: dict[ActionType, float] = default_action_bias | (
+        self.action_preference: dict[ActionType, float] = default_action_preference | (
             action_preference or {}
         )
         self.action_cost: dict[ActionType, float] = default_action_cost | (
@@ -175,7 +176,7 @@ class Agent:
         """
         return 1.0 - self.confidence(claim_id)
 
-    def disagreement(self, claim_id: int, agent_id: int) -> float:
+    def disagreement(self, claim_id: int, agent_id: int, world: "World") -> float:
         """
         Calculate the disagreement in a claim based on the agent's current beliefs [0.0, 1.0].
 
@@ -187,7 +188,8 @@ class Agent:
         :return: The disagreement in the claim
         :rtype: float
         """
-        return abs(self.beliefs[claim_id] - self.beliefs[agent_id])
+        neighbor = world.agents[agent_id]
+        return abs(self.beliefs[claim_id] - neighbor.beliefs[claim_id])
 
     def local_disagreement(self, claim_id: int, world: "World") -> float:
         """
@@ -201,10 +203,16 @@ class Agent:
         :return: The local disagreement in the claim
         :rtype: float
         """
-        return sum(
-            self.disagreement(claim_id, neighbor_id)
-            for neighbor_id in world.network[self.id]
-        ) / len(world.network[self.id])
+        n_neighbors = len(world.network[self.id])
+        if n_neighbors == 0:
+            return 0.0
+        return (
+            sum(
+                self.disagreement(claim_id, neighbor_id, world)
+                for neighbor_id in world.network[self.id]
+            )
+            / n_neighbors
+        )
 
     def get_action_preference(self, world: "World", action: Action) -> float:
         """
