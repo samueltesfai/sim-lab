@@ -1,18 +1,41 @@
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any
 from collections import defaultdict
+from enum import Enum
 import random
 import math
 
 
 def clamp(value, min_value, max_value):
+    """Because I'm too lazy to import numpy"""
     return max(min_value, min(value, max_value))
+
+
+class ActionType(Enum):
+    IDLE = "idle"
+    OBSERVE = "observe"
+    VERIFY = "verify"
+    COMMUNICATE = "communicate"
+    BROADCAST = "broadcast"
+
+
+class MemoryType(Enum):
+    OBSERVED = "observed"
+    VERIFIED = "verified"
+    HEARD = "heard"
+
+
+@dataclass
+class Action:
+    type: ActionType
+    claim_id: int | None = None
+    target_agent_id: int | None = None
 
 
 @dataclass
 class Memory:
     id: int
-    type: Literal["observe", "hear", "verify", "action"]
+    type: MemoryType
     timestamp: int
     source: int | None
     claim_id: int | None
@@ -48,7 +71,7 @@ class Agent:
     def _add_memory(
         self,
         world: "World",
-        memory_type: Literal["observe", "hear", "verify", "action"],
+        memory_type: MemoryType,
         source: int | None = None,
         claim_id: int | None = None,
         evidence: float | None = None,
@@ -63,7 +86,7 @@ class Agent:
         )
         self.memory.append(memory)
 
-    def observe(self, world: "World", claim_id: int):
+    def _observe(self, world: "World", claim_id: int):
         """
         Observe a claim in the world, generating evidence based on the truth of the claim and some noise.
 
@@ -75,9 +98,11 @@ class Agent:
         """
         base = 1.0 if world.truths[claim_id] else 0.0
         evidence = clamp(base + world.rng.gauss(0.0, world.noise["observe"]), 0.0, 1.0)
-        self._add_memory(world, "observe", claim_id=claim_id, evidence=evidence)
+        self._add_memory(
+            world, MemoryType.OBSERVED, claim_id=claim_id, evidence=evidence
+        )
 
-    def communicate(self, world: "World", target_agent_id: int, claim_id: int):
+    def _communicate(self, world: "World", target_agent_id: int, claim_id: int):
         """
         Communicate a claim to another agent, allowing them to receive social evidence based on the broadcasting agent's beliefs and some noise.
 
@@ -91,7 +116,7 @@ class Agent:
         """
         world.deliver_communicate(self.id, target_agent_id, claim_id)
 
-    def broadcast(self, world: "World", claim_id: int):
+    def _broadcast(self, world: "World", claim_id: int):
         """
         Broadcast a claim to all connected agents in the social network, allowing them to receive social evidence based on the broadcasting agent's beliefs and some noise.
 
@@ -103,7 +128,7 @@ class Agent:
         """
         world.deliver_broadcast(self.id, claim_id)
 
-    def verify(self, world: "World", claim_id: int):
+    def _verify(self, world: "World", claim_id: int):
         """
         Verify a claim by directly checking its truth in the world, generating evidence based on the truth of the claim and some noise.
 
@@ -115,23 +140,49 @@ class Agent:
         """
         base = 1.0 if world.truths[claim_id] else 0.0
         evidence = clamp(base + world.rng.gauss(0.0, world.noise["verify"]), 0.0, 1.0)
-        self._add_memory(world, "verify", claim_id=claim_id, evidence=evidence)
+        self._add_memory(
+            world, MemoryType.VERIFIED, claim_id=claim_id, evidence=evidence
+        )
 
-    def action(
-        self, world: "World", target_agent_id: int | None = None, action: Any = None
-    ):
+    def choose_action(self, world: "World") -> Action:
         """
-        Perform a generic action in the world, potentially targeting another agent or based on a specific action type.
+        Choose an action to perform based on agent's current state and probabilities.
+
+        :param self:
+        :param world: The world in which the agent is choosing an action
+        :type world: 'World'
+        :return: The chosen action
+        :rtype: Action
+        """
+        pass
+
+    def act(self, world: "World", action: Action):
+        """
+        Execute the chosen action using a dispatcher pattern.
 
         :param self:
         :param world: The world in which the agent is performing the action
         :type world: 'World'
-        :param target_agent_id: The ID of the target agent for the action, if any
-        :type target_agent_id: int | None
-        :param action: The specific action being performed
-        :type action: Any
+        :param action: The action to perform
+        :type action: Action
         """
-        pass
+        match action.type:
+            case ActionType.OBSERVE:
+                if action.claim_id is not None:
+                    self._observe(world, action.claim_id)
+            case ActionType.VERIFY:
+                if action.claim_id is not None:
+                    self._verify(world, action.claim_id)
+            case ActionType.COMMUNICATE:
+                if action.claim_id is not None and action.target_agent_id is not None:
+                    self._communicate(world, action.target_agent_id, action.claim_id)
+            case ActionType.BROADCAST:
+                if action.claim_id is not None:
+                    self._broadcast(world, action.claim_id)
+            case ActionType.IDLE:
+                pass  # Do nothing
+            case _:
+                pass  # Unknown action type, do nothing
 
     def update_beliefs(
         self,
@@ -159,11 +210,11 @@ class Agent:
 
             if mem.claim_id is not None and mem.evidence is not None:
                 match mem.type:
-                    case "observe":
+                    case MemoryType.OBSERVED:
                         lr = eta * w_observe
-                    case "verify":
+                    case MemoryType.VERIFIED:
                         lr = eta * w_verify
-                    case "hear":
+                    case MemoryType.HEARD:
                         if mem.source is None:
                             lr = 0.0
                         else:
@@ -194,9 +245,7 @@ class World:
         self.tick = 0
         self.k_interactions = k_interactions
         self.rng = random.Random(rng_seed)
-        self.noise = {"observe": 0.0, "hear": 0.0, "verify": 0.0, "action": 0.0} | (
-            noise or {}
-        )
+        self.noise = {"observe": 0.0, "hear": 0.0, "verify": 0.0} | (noise or {})
         self.truths = truths
         self.network = self._generate_dummy_network(
             agents
@@ -231,7 +280,11 @@ class World:
         """
         evidence = self.heard_evidence(sender_id, claim_id)
         self._agents[receiver_id]._add_memory(
-            self, "hear", source=sender_id, claim_id=claim_id, evidence=evidence
+            self,
+            MemoryType.HEARD,
+            source=sender_id,
+            claim_id=claim_id,
+            evidence=evidence,
         )
 
     def deliver_broadcast(self, sender_id: int, claim_id: int):
@@ -247,7 +300,11 @@ class World:
         for receiver_id in self.network[sender_id]:
             evidence = self.heard_evidence(sender_id, claim_id)
             self._agents[receiver_id]._add_memory(
-                self, "hear", source=sender_id, claim_id=claim_id, evidence=evidence
+                self,
+                MemoryType.HEARD,
+                source=sender_id,
+                claim_id=claim_id,
+                evidence=evidence,
             )
 
     def heard_evidence(self, sender_id: int, claim_id: int) -> float:
@@ -277,8 +334,6 @@ class World:
 
         :param self:
         """
-        # TODO: We can implement a more complex event generation mechanism here, potentially based on real-world news cycles or using a configurable event model. For now, we will just randomly select some agents to observe and verify the claim, and randomly select some interactions for communication.
-
         belief_before = {
             aid: a.beliefs[self.subject_claim_id] for aid, a in self._agents.items()
         }
@@ -293,28 +348,26 @@ class World:
             "belief_before": belief_before,
         }
 
-        # Sample randomly from total possible relationships (edges in the network)
+        updated_agents = set()
+
+        # Phase 1: Individual agent actions (observe, verify)
+        for agent in self._agents.values():
+            action = agent.choose_action(self)
+            agent.act(self, action)
+
+            # Track what happened
+            if action.type == ActionType.OBSERVE:
+                self.last_step["observed_ids"].append(agent.id)
+                updated_agents.add(agent.id)
+            elif action.type == ActionType.VERIFY:
+                self.last_step["verified_ids"].append(agent.id)
+                updated_agents.add(agent.id)
+
+        # Phase 2: Communication interactions (still random as before)
         relationships = [(k, entry) for k, v in self.network.items() for entry in v]
         interactions = self.rng.sample(
             relationships, k=min(self.k_interactions, len(relationships))
         )
-        observers = [
-            a for a in self._agents.values() if self.rng.random() < a.p_observe
-        ]
-        verifiers = [a for a in self._agents.values() if self.rng.random() < a.p_verify]
-        updated_agents = set()
-
-        for observer in observers:
-            claim_id = self.rng.choice(list(self.truths.keys()))
-            observer.observe(self, claim_id)
-            self.last_step["observed_ids"].append(observer.id)
-            updated_agents.add(observer.id)
-
-        for verifier in verifiers:
-            claim_id = self.rng.choice(list(self.truths.keys()))
-            verifier.verify(self, claim_id)
-            self.last_step["verified_ids"].append(verifier.id)
-            updated_agents.add(verifier.id)
 
         for sender_id, receiver_id in interactions:
             claim_id = self.rng.choice(list(self.truths.keys()))
@@ -322,6 +375,7 @@ class World:
             self.last_step["heard_edges"].append((sender_id, receiver_id, claim_id))
             updated_agents.add(receiver_id)
 
+        # Phase 3: Update beliefs for all agents with new memories
         for agent_id in updated_agents:
             self._agents[agent_id].update_beliefs()
             self.last_step["n_updates"] += 1
@@ -435,6 +489,15 @@ def init_world(num_agents: int = 50, rng_seed: int = 0) -> World:
 
 
 if __name__ == "__main__":
+    print("Initializing world with new action system...")
     world = init_world(num_agents=10, rng_seed=42)
-    for _ in range(100):
+    print(f"World initialized: {world}")
+    print("Running 5 steps to test the new action system...")
+    for i in range(5):
+        print(f"\n--- Step {i + 1} ---")
         world.step()
+        if world.last_step:
+            print(f"Observed: {len(world.last_step['observed_ids'])} agents")
+            print(f"Verified: {len(world.last_step['verified_ids'])} agents")
+            print(f"Heard: {len(world.last_step['heard_edges'])} interactions")
+    print("\nTest completed successfully!")
