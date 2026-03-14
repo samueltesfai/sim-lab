@@ -13,7 +13,6 @@ def clamp(value, min_value, max_value):
 
 class ActionType(Enum):
     IDLE = "idle"
-    OBSERVE = "observe"
     VERIFY = "verify"
     COMMUNICATE = "communicate"
     BROADCAST = "broadcast"
@@ -31,6 +30,18 @@ class Action:
     claim_id: int | None = None
     target_agent_id: int | None = None
 
+    def __post_init__(self):
+        """Validate action parameters based on type."""
+        if self.type == ActionType.VERIFY and self.claim_id is None:
+            raise ValueError("VERIFY action requires claim_id")
+        if self.type == ActionType.COMMUNICATE:
+            if self.claim_id is None or self.target_agent_id is None:
+                raise ValueError(
+                    "COMMUNICATE action requires claim_id and target_agent_id"
+                )
+        if self.type == ActionType.BROADCAST and self.claim_id is None:
+            raise ValueError("BROADCAST action requires claim_id")
+
 
 @dataclass
 class Memory:
@@ -47,23 +58,33 @@ class Agent:
         self,
         id: int,
         rng_seed: int = 0,
-        p_observe: float = 0.05,
-        p_verify: float = 0.01,
+        action_bias: dict[ActionType, float] | None = None,
+        action_cost: dict[ActionType, float] | None = None,
     ):
         self.id = id
         self.rng = random.Random(rng_seed)
-        self.beliefs: defaultdict[int, float] = defaultdict(
-            lambda: self.rng.random()
-        )  # Can map claim IDs to Belief object or just single float representing confidence level
-        self.trust: defaultdict[int, float] = defaultdict(
-            lambda: 0.5
-        )  # default trust level for other agents
+        self.beliefs: defaultdict[int, float] = defaultdict(lambda: self.rng.random())
+        self.trust: defaultdict[int, float] = defaultdict(lambda: 0.5)
         self.memory: list[Memory] = []
-        self._mem_cursor = (
-            0  # Cursor to track which memories have been processed for belief updates
+        self._mem_cursor = 0  # Cursor to track memories for belief updates
+        default_action_bias = {
+            ActionType.VERIFY: 0.0,
+            ActionType.COMMUNICATE: 0.0,
+            ActionType.BROADCAST: 0.0,
+            ActionType.IDLE: 0.0,
+        }
+        default_action_cost = {
+            ActionType.VERIFY: 1.0,
+            ActionType.COMMUNICATE: 1.0,
+            ActionType.BROADCAST: 1.0,
+            ActionType.IDLE: 0.0,
+        }
+        self.action_bias: dict[ActionType, float] = default_action_bias | (
+            action_bias or {}
         )
-        self.p_observe = p_observe
-        self.p_verify = p_verify
+        self.action_cost: dict[ActionType, float] = default_action_cost | (
+            action_cost or {}
+        )
 
     def __repr__(self):
         return f"Agent(id={self.id}, beliefs={dict(self.beliefs)}, trust={dict(self.trust)}, memory={len(self.memory)})"
@@ -85,22 +106,6 @@ class Agent:
             evidence=evidence,
         )
         self.memory.append(memory)
-
-    def _observe(self, world: "World", claim_id: int):
-        """
-        Observe a claim in the world, generating evidence based on the truth of the claim and some noise.
-
-        :param self:
-        :param world: The world in which the agent is observing the claim
-        :type world: 'World'
-        :param claim_id: The ID of the claim being observed
-        :type claim_id: int
-        """
-        base = 1.0 if world.truths[claim_id] else 0.0
-        evidence = clamp(base + world.rng.gauss(0.0, world.noise["observe"]), 0.0, 1.0)
-        self._add_memory(
-            world, MemoryType.OBSERVED, claim_id=claim_id, evidence=evidence
-        )
 
     def _communicate(self, world: "World", target_agent_id: int, claim_id: int):
         """
@@ -154,7 +159,22 @@ class Agent:
         :return: A list of candidate actions
         :rtype: list[Action]
         """
-        pass
+        candidates = [Action(ActionType.IDLE)]
+
+        for claim_id in world.truths:
+            candidates.append(Action(ActionType.VERIFY, claim_id=claim_id))
+            candidates.append(Action(ActionType.BROADCAST, claim_id=claim_id))
+
+            for neighbor_id in world.network[self.id]:
+                candidates.append(
+                    Action(
+                        ActionType.COMMUNICATE,
+                        claim_id=claim_id,
+                        target_agent_id=neighbor_id,
+                    )
+                )
+
+        return candidates
 
     def score_action(self, world: "World", action: Action) -> float:
         """
@@ -168,8 +188,22 @@ class Agent:
         :return: The score of the action
         :rtype: float
         """
-        # Can delegate to a policy object for more complex scoring and extensibility
-        pass
+
+        match action.type:
+            case ActionType.VERIFY:
+                uncertainty = 1.0 - abs(2 * self.beliefs[action.claim_id] - 1)
+                return (
+                    self.action_bias[action.type] * uncertainty
+                    - self.action_cost[action.type]
+                )
+            case ActionType.COMMUNICATE:
+                pass
+            case ActionType.BROADCAST:
+                pass
+            case ActionType.IDLE:
+                return 0.0
+            case _:
+                raise ValueError(f"Unknown action type: {action.type}")
 
     def choose_action(self, world: "World") -> Action:
         """
@@ -197,22 +231,16 @@ class Agent:
         :type action: Action
         """
         match action.type:
-            case ActionType.OBSERVE:
-                if action.claim_id is not None:
-                    self._observe(world, action.claim_id)
             case ActionType.VERIFY:
-                if action.claim_id is not None:
-                    self._verify(world, action.claim_id)
+                self._verify(world, action.claim_id)
             case ActionType.COMMUNICATE:
-                if action.claim_id is not None and action.target_agent_id is not None:
-                    self._communicate(world, action.target_agent_id, action.claim_id)
+                self._communicate(world, action.target_agent_id, action.claim_id)
             case ActionType.BROADCAST:
-                if action.claim_id is not None:
-                    self._broadcast(world, action.claim_id)
+                self._broadcast(world, action.claim_id)
             case ActionType.IDLE:
                 pass  # Do nothing
             case _:
-                pass  # Unknown action type, do nothing
+                raise ValueError(f"Unknown action type: {action.type}")
 
     def update_beliefs(
         self,
@@ -275,7 +303,7 @@ class World:
         self.tick = 0
         self.k_interactions = k_interactions
         self.rng = random.Random(rng_seed)
-        self.noise = {"observe": 0.0, "hear": 0.0, "verify": 0.0} | (noise or {})
+        self.noise = {"hear": 0.0, "verify": 0.0} | (noise or {})
         self.truths = truths
         self.network = self._generate_dummy_network(
             agents
@@ -352,7 +380,7 @@ class World:
 
     def event_generator(self):
         """
-        Generate events in the world that agents can observe, verify, or communicate about. This can be extended to include more complex event types, dependencies between events, and temporal dynamics.
+        Generate events in the world that agents can verify or communicate about. This can be extended to include more complex event types, dependencies between events, and temporal dynamics.
 
         :param self:
         """
@@ -372,7 +400,6 @@ class World:
             "tick": self.tick,
             "claim_id": self.subject_claim_id,
             "n_updates": 0,
-            "observed_ids": [],
             "verified_ids": [],
             "heard_edges": [],
             "belief_before": belief_before,
@@ -380,16 +407,13 @@ class World:
 
         updated_agents = set()
 
-        # Phase 1: Individual agent actions (observe, verify)
+        # Phase 1: Individual agent actions (verify)
         for agent in self._agents.values():
             action = agent.choose_action(self)
             agent.act(self, action)
 
             # Track what happened
-            if action.type == ActionType.OBSERVE:
-                self.last_step["observed_ids"].append(agent.id)
-                updated_agents.add(agent.id)
-            elif action.type == ActionType.VERIFY:
+            if action.type == ActionType.VERIFY:
                 self.last_step["verified_ids"].append(agent.id)
                 updated_agents.add(agent.id)
 
@@ -486,7 +510,7 @@ class World:
             f"q10={q10:.3f} q50={q50:.3f} q90={q90:.3f} | "
             f"<0.2={low:.2f} >0.8={high:.2f} | "
             f"Δabs_mean={mean_abs_delta:.4f} Δmax={max_abs_delta:.4f} | "
-            f"events: hear={len(self.last_step['heard_edges'])} obs={len(self.last_step['observed_ids'])} ver={len(self.last_step['verified_ids'])} updates={self.last_step['n_updates']}"
+            f"events: hear={len(self.last_step['heard_edges'])} ver={len(self.last_step['verified_ids'])} updates={self.last_step['n_updates']}"
         )
 
         # optional second line with “who changed / who’s connected”
@@ -504,7 +528,6 @@ def init_world(num_agents: int = 50, rng_seed: int = 0) -> World:
     truths = {0: True}  # single claim for POC
 
     noise = {
-        "observe": 0.25,
         "hear": 0.15,
         "verify": 0.05,
     }
@@ -527,7 +550,6 @@ if __name__ == "__main__":
         print(f"\n--- Step {i + 1} ---")
         world.step()
         if world.last_step:
-            print(f"Observed: {len(world.last_step['observed_ids'])} agents")
             print(f"Verified: {len(world.last_step['verified_ids'])} agents")
             print(f"Heard: {len(world.last_step['heard_edges'])} interactions")
     print("\nTest completed successfully!")
