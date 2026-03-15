@@ -603,15 +603,6 @@ class World:
                         [(agent.id, rid) for rid in self.network[agent.id]]
                     )
 
-        # Create deduplicated heard edges from communicate and broadcast edges
-        self.last_step["heard_edges"] = list(
-            {
-                (min(l_id, r_id), max(l_id, r_id))
-                for l_id, r_id in self.last_step["communicate_edges"]
-                + self.last_step["broadcast_edges"]
-            }
-        )
-
         # Update beliefs for all agents with new memories
         for agent in self.agents:
             self.last_step["agent_updates"] += agent.update_beliefs()
@@ -681,7 +672,8 @@ class World:
             f"q10={q10:.3f} q50={q50:.3f} q90={q90:.3f} | "
             f"<0.2={low:.2f} >0.8={high:.2f} | "
             f"Δabs_mean={mean_abs_delta:.4f} Δmax={max_abs_delta:.4f} | "
-            f"events: hear={len(self.last_step['heard_edges'])} | "
+            f"events: com={len(self.last_step['communicate_edges'])} | "
+            f"bcast={len(self.last_step['broadcast_edges'])} | "
             f"obs={len(self.last_step['observed_ids'])} | "
             f"ver={len(self.last_step['verified_ids'])} | "
             f"updates={self.last_step['agent_updates']}"
