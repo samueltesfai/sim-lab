@@ -25,12 +25,34 @@ class LiveNetworkViz:
             Nodes(
                 self.scene, color_mode="gray", z=2
             ),  # let Nodes pull nodes/pos/sizes from scene/vm
-            ActiveEdges(self.scene, key="active_edges", z=3, rad=0.08, arrowsize=14),
-            RingOverlay(
-                self.scene, color="orange", scale=1.08, key="heard_receivers", z=4
+            ActiveEdges(
+                self.scene,
+                key="communicate_edges",
+                z=3,
+                rad=0.08,
+                arrowsize=14,
+                color="darkorange",
+            ),
+            ActiveEdges(
+                self.scene,
+                key="broadcast_edges",
+                z=3,
+                rad=0.08,
+                arrowsize=14,
+                color="slateblue",
             ),
             RingOverlay(
-                self.scene, color="deepskyblue", scale=1.15, key="observed_ids", z=5
+                self.scene,
+                color="cornflowerblue",
+                scale=1.08,
+                key="broadcast_receivers",
+                z=4,
+            ),
+            RingOverlay(
+                self.scene, color="orange", scale=1.08, key="communicate_receivers", z=4
+            ),
+            RingOverlay(
+                self.scene, color="limegreen", scale=1.15, key="observed_ids", z=5
             ),
             RingOverlay(
                 self.scene, color="magenta", scale=1.25, key="verified_ids", z=6
