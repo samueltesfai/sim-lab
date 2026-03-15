@@ -6,8 +6,8 @@ import random
 import math
 
 
-def clamp(value, min_value, max_value):
-    """Because I'm too lazy to import numpy"""
+def clamp(value, min_value=0.0, max_value=1.0):
+    """The only utility function we need."""
     return max(min_value, min(value, max_value))
 
 
@@ -134,7 +134,7 @@ class Agent:
                 case _:
                     base = 0.5
                     noise = 0.0
-            evidence = clamp(base + noise, 0.0, 1.0)
+            evidence = clamp(base + noise)
 
         memory = Memory(
             id=len(self.memory),
@@ -428,11 +428,11 @@ class Agent:
                     case _:
                         lr = 0.0
 
-                lr = clamp(lr, 0.0, 1.0)
+                lr = clamp(lr)
 
                 b = self.beliefs[mem.claim_id]
                 b_new = b + lr * (mem.evidence - b)
-                self.beliefs[mem.claim_id] = clamp(b_new, 0.0, 1.0)
+                self.beliefs[mem.claim_id] = clamp(b_new)
 
             self._mem_cursor += 1
 
