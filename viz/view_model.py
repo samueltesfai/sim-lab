@@ -14,14 +14,14 @@ class ViewModel:
 
     observed_ids: list[int]
     verified_ids: list[int]
-    active_edges: list[tuple[int, int]]  # (sender, receiver) for claim
+    active_edges: list[tuple[int, int]]  # directed (sender, receiver)
     heard_receivers: list[int]
 
     stats: dict[str, float]  # mean/min/max
-    pos: dict[int, tuple[float, float]]  # node positions (can change)
+    pos: dict[int, tuple[float, float]]  # node positions
 
 
-def compute_viewmodel(world: World, scene: Scene, claim_id: int):
+def compute_viewmodel(world: World, scene: Scene, claim_id: int) -> ViewModel:
     ls = world.last_step or {}
 
     beliefs = {a.id: a.beliefs[claim_id] for a in world.agents}
@@ -29,8 +29,12 @@ def compute_viewmodel(world: World, scene: Scene, claim_id: int):
 
     observed = ls.get("observed_ids", [])
     verified = ls.get("verified_ids", [])
-    heard = ls.get("heard_edges", [])
-    active_edges = [(s, r) for (s, r, cid) in heard if cid == claim_id]
+
+    communicate_edges = ls.get("communicate_edges", [])
+    broadcast_edges = ls.get("broadcast_edges", [])
+
+    # directed union, deduplicated while preserving direction
+    active_edges = list(dict.fromkeys(communicate_edges + broadcast_edges))
     receivers = list({r for (_s, r) in active_edges})
 
     vals = list(beliefs.values())
