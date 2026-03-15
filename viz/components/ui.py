@@ -31,7 +31,7 @@ class HUDText(_VizComponent):
         self.txt.set_text(
             f"tick={vm.tick}  claim={vm.claim_id}\n"
             f"mean={s['mean']:.3f} min={s['min']:.3f} max={s['max']:.3f}\n"
-            f"events: hear={len(vm.active_edges)} obs={len(vm.observed_ids)} ver={len(vm.verified_ids)}"
+            f"events: comm={len(vm.communicate_edges)} broad={len(vm.broadcast_edges)} obs={len(vm.observed_ids)} ver={len(vm.verified_ids)}"
         )
 
 
@@ -49,7 +49,7 @@ class LegendComponent(_VizComponent):
                 color="w",
                 label="observe",
                 markerfacecolor="none",
-                markeredgecolor="deepskyblue",
+                markeredgecolor="limegreen",
                 markersize=10,
                 linewidth=0,
             ),
@@ -67,13 +67,16 @@ class LegendComponent(_VizComponent):
             Line2D(
                 [0],
                 [0],
-                marker="o",
-                color="w",
-                label="heard (recv)",
-                markerfacecolor="none",
-                markeredgecolor="orange",
-                markersize=10,
-                linewidth=0,
+                color="darkorange",
+                label="communicate edge",
+                linewidth=2,
+            ),
+            Line2D(
+                [0],
+                [0],
+                color="slateblue",
+                label="broadcast edge",
+                linewidth=2,
             ),
         ]
         self.legend = ax.legend(handles=handles, loc="lower left", framealpha=0.7)
