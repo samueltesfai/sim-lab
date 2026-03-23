@@ -4,6 +4,7 @@ from collections import defaultdict
 from enum import Enum
 import random
 import math
+from config import load_config, build_world
 
 
 def clamp(value, min_value=0.0, max_value=1.0):
@@ -446,6 +447,7 @@ class World:
         truths: dict[int, bool],
         rng_seed: int = 0,
         noise: dict[MemoryType, float] | None = None,
+        observation_probability: float = 0.1,
     ):
         self._agents = {a.id: a for a in agents}
         self.last_step: dict[str, Any] | None = {}
@@ -457,6 +459,7 @@ class World:
             MemoryType.VERIFY: 0.0,
         } | (noise or {})
         self.truths = truths
+        self.observation_probability = observation_probability
         self.network = self._generate_dummy_network(
             # TODO: We can implement a more complex network generation mechanism here,
             # potentially based on real-world social network structures or using a
@@ -508,7 +511,7 @@ class World:
         observed_agents = []
 
         for agent in self.agents:
-            if self.rng.random() < 0.1:  # 10% observation probability per agent
+            if self.rng.random() < self.observation_probability:
                 claim_id = self.rng.choice(self.claims)
                 agent.add_memory(self, MemoryType.OBSERVE, claim_id=claim_id)
                 observed_agents.append(agent.id)
@@ -686,28 +689,10 @@ class World:
         print(f"  top degree (aid, out_degree): {top_degree}")
 
 
-def init_world(num_agents: int = 50, rng_seed: int = 0) -> World:
-    agents = [
-        Agent(id=i, rng_seed=rng_seed + i + 1) for i in range(num_agents)
-    ]  # add i to differ seed, and 1 to offset from world rng
-
-    truths = {0: True}  # single claim for POC
-
-    noise = {
-        MemoryType.OBSERVE: 0.1,
-        MemoryType.HEAR: 0.15,
-        MemoryType.VERIFY: 0.05,
-    }
-
-    return World(
-        agents=agents,
-        truths=truths,
-        rng_seed=rng_seed,
-        noise=noise,
-    )
-
-
 if __name__ == "__main__":
-    world = init_world(num_agents=10, rng_seed=42)
+    config_path = "configs/default.yaml"
+    cfg = load_config(config_path)
+    world = build_world(cfg)
+
     for _ in range(100):
         world.step()
