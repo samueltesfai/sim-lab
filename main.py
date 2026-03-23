@@ -12,7 +12,9 @@ if __name__ == "__main__":
         default="configs/default.yaml",
         help="Path to configuration YAML file",
     )
-    parser.add_argument("-t", "--steps", type=int, default=500)
+    parser.add_argument(
+        "-t", "--steps", type=int, default=500, help="Number of simulation steps to run"
+    )
     parser.add_argument(
         "-c",
         "--claim-id",
@@ -20,9 +22,27 @@ if __name__ == "__main__":
         default=None,
         help="Claim ID to visualize (default: first claim from config)",
     )
-    parser.add_argument("-d", "--draw-every", type=int, default=1)
-    parser.add_argument("-g", "--layout-seed", type=int, default=0)
-    parser.add_argument("-p", "--pause-time", type=float, default=0.25)
+    parser.add_argument(
+        "-d",
+        "--draw-every",
+        type=int,
+        default=1,
+        help="Draw visualization every N steps",
+    )
+    parser.add_argument(
+        "-g",
+        "--layout-seed",
+        type=int,
+        default=0,
+        help="Random seed for network layout",
+    )
+    parser.add_argument(
+        "-p",
+        "--pause-time",
+        type=float,
+        default=0.25,
+        help="Pause time between animation frames (seconds)",
+    )
     args = parser.parse_args()
 
     cfg = load_config(args.config)
