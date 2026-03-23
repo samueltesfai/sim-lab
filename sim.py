@@ -446,6 +446,7 @@ class World:
         truths: dict[int, bool],
         rng_seed: int = 0,
         noise: dict[MemoryType, float] | None = None,
+        observation_probability: float = 0.1,
     ):
         self._agents = {a.id: a for a in agents}
         self.last_step: dict[str, Any] | None = {}
@@ -457,15 +458,13 @@ class World:
             MemoryType.VERIFY: 0.0,
         } | (noise or {})
         self.truths = truths
+        self.observation_probability = observation_probability
         self.network = self._generate_dummy_network(
             # TODO: We can implement a more complex network generation mechanism here,
             # potentially based on real-world social network structures or using a
             # configurable graph model.
             agents
         )
-        # For now we just track one claim, but we can easily extend this to multiple
-        # claims and track them separately in the logs and metrics.
-        self.subject_claim_id = 0
 
     def _generate_dummy_network(self, agents: list[Agent]) -> dict[int, list[int]]:
         network = defaultdict(list)
@@ -473,7 +472,7 @@ class World:
         for agent in agents:
             connections = self.rng.sample(
                 [a.id for a in agents if a.id != agent.id],
-                k=self.rng.randint(1, max_degree),
+                k=self.rng.randint(0, max_degree),  # Allows for isolated agents
             )
             network[agent.id] = connections
         return network
@@ -508,7 +507,7 @@ class World:
         observed_agents = []
 
         for agent in self.agents:
-            if self.rng.random() < 0.1:  # 10% observation probability per agent
+            if self.rng.random() < self.observation_probability:
                 claim_id = self.rng.choice(self.claims)
                 agent.add_memory(self, MemoryType.OBSERVE, claim_id=claim_id)
                 observed_agents.append(agent.id)
@@ -560,7 +559,7 @@ class World:
                 claim_id=claim_id,
             )
 
-    def step(self):
+    def step(self, claim_id: int = 0):
         """
         Advance the simulation by one tick, allowing each agent to perform their
         actions and update their beliefs based on their interactions with the world
@@ -568,14 +567,14 @@ class World:
 
         :param self: The world instance
         :type self: World
+        :param claim_id: The claim ID to track and log
+        :type claim_id: int
         """
-        belief_before = {
-            aid: a.beliefs[self.subject_claim_id] for aid, a in self._agents.items()
-        }
+        belief_before = {aid: a.beliefs[claim_id] for aid, a in self._agents.items()}
 
         self.last_step = {
             "tick": self.tick,
-            "claim_id": self.subject_claim_id,
+            "claim_id": claim_id,
             "agent_updates": 0,
             "observed_ids": [],
             "verified_ids": [],
@@ -607,9 +606,7 @@ class World:
         for agent in self.agents:
             self.last_step["agent_updates"] += agent.update_beliefs()
 
-        belief_after = {
-            aid: a.beliefs[self.subject_claim_id] for aid, a in self._agents.items()
-        }
+        belief_after = {aid: a.beliefs[claim_id] for aid, a in self._agents.items()}
         self.last_step["belief_after"] = belief_after
 
         self.tick += 1
@@ -686,28 +683,12 @@ class World:
         print(f"  top degree (aid, out_degree): {top_degree}")
 
 
-def init_world(num_agents: int = 50, rng_seed: int = 0) -> World:
-    agents = [
-        Agent(id=i, rng_seed=rng_seed + i + 1) for i in range(num_agents)
-    ]  # add i to differ seed, and 1 to offset from world rng
-
-    truths = {0: True}  # single claim for POC
-
-    noise = {
-        MemoryType.OBSERVE: 0.1,
-        MemoryType.HEAR: 0.15,
-        MemoryType.VERIFY: 0.05,
-    }
-
-    return World(
-        agents=agents,
-        truths=truths,
-        rng_seed=rng_seed,
-        noise=noise,
-    )
-
-
 if __name__ == "__main__":
-    world = init_world(num_agents=10, rng_seed=42)
+    from config import load_config, build_world
+
+    config_path = "configs/default.yaml"
+    cfg = load_config(config_path)
+    world = build_world(cfg)
+
     for _ in range(100):
-        world.step()
+        world.step(claim_id=0)

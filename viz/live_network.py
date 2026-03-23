@@ -105,7 +105,7 @@ def run_live(
     plt.show()
 
     for _ in range(steps):
-        world.step()
+        world.step(claim_id=claim_id)
         if world.tick % draw_every == 0:
             viz.draw()
             plt.pause(pause_time)

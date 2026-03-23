@@ -1,0 +1,22 @@
+world:
+  num_agents: 50
+  rng_seed: 0
+  observation_probability: 0.15
+  truths:
+    0: true
+  noise:
+    OBSERVE: 0.25
+    HEAR: 0.30
+    VERIFY: 0.15
+
+agent:
+  action_preference:
+    IDLE: 0.0
+    VERIFY: 0.9
+    COMMUNICATE: 0.7
+    BROADCAST: 0.5
+  action_cost:
+    IDLE: 0.0
+    VERIFY: 0.35
+    COMMUNICATE: 0.15
+    BROADCAST: 0.30
