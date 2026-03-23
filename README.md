@@ -1,6 +1,8 @@
 # Simulation Lab: Social Network Behavior Experiments
 
-![Simulation demo](docs/assets/demo.gif)
+<p align="center">
+  <img src="docs/assets/demo.gif" alt="Simulation demo">
+</p>
 
 This repository is a simulation lab for studying belief dynamics and information diffusion in directed social networks. It provides a simulation kernel and live visualization system for observing how agents interact, exchange information, and update beliefs over time.
 
