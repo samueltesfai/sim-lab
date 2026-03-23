@@ -4,7 +4,6 @@ from collections import defaultdict
 from enum import Enum
 import random
 import math
-from config import load_config, build_world
 
 
 def clamp(value, min_value=0.0, max_value=1.0):
@@ -466,9 +465,6 @@ class World:
             # configurable graph model.
             agents
         )
-        # For now we just track one claim, but we can easily extend this to multiple
-        # claims and track them separately in the logs and metrics.
-        self.subject_claim_id = 0
 
     def _generate_dummy_network(self, agents: list[Agent]) -> dict[int, list[int]]:
         network = defaultdict(list)
@@ -476,7 +472,7 @@ class World:
         for agent in agents:
             connections = self.rng.sample(
                 [a.id for a in agents if a.id != agent.id],
-                k=self.rng.randint(1, max_degree),
+                k=self.rng.randint(0, max_degree),  # Allows for isolated agents
             )
             network[agent.id] = connections
         return network
@@ -563,7 +559,7 @@ class World:
                 claim_id=claim_id,
             )
 
-    def step(self):
+    def step(self, claim_id: int = 0):
         """
         Advance the simulation by one tick, allowing each agent to perform their
         actions and update their beliefs based on their interactions with the world
@@ -571,14 +567,14 @@ class World:
 
         :param self: The world instance
         :type self: World
+        :param claim_id: The claim ID to track and log
+        :type claim_id: int
         """
-        belief_before = {
-            aid: a.beliefs[self.subject_claim_id] for aid, a in self._agents.items()
-        }
+        belief_before = {aid: a.beliefs[claim_id] for aid, a in self._agents.items()}
 
         self.last_step = {
             "tick": self.tick,
-            "claim_id": self.subject_claim_id,
+            "claim_id": claim_id,
             "agent_updates": 0,
             "observed_ids": [],
             "verified_ids": [],
@@ -610,9 +606,7 @@ class World:
         for agent in self.agents:
             self.last_step["agent_updates"] += agent.update_beliefs()
 
-        belief_after = {
-            aid: a.beliefs[self.subject_claim_id] for aid, a in self._agents.items()
-        }
+        belief_after = {aid: a.beliefs[claim_id] for aid, a in self._agents.items()}
         self.last_step["belief_after"] = belief_after
 
         self.tick += 1
@@ -690,9 +684,11 @@ class World:
 
 
 if __name__ == "__main__":
+    from config import load_config, build_world
+
     config_path = "configs/default.yaml"
     cfg = load_config(config_path)
     world = build_world(cfg)
 
     for _ in range(100):
-        world.step()
+        world.step(claim_id=0)

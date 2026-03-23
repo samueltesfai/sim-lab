@@ -1,5 +1,6 @@
 from omegaconf import OmegaConf
 import os
+from sim import World, Agent, ActionType, MemoryType
 
 
 def load_config(path: str) -> OmegaConf:
@@ -49,8 +50,6 @@ def validate_config(cfg: OmegaConf) -> None:
 
 def convert_action_strings(cfg: OmegaConf) -> OmegaConf:
     """Convert string action keys to ActionType enums."""
-    # Import here to avoid circular import
-    from sim import ActionType
 
     # Convert action preferences
     pref_dict = {}
@@ -69,8 +68,6 @@ def convert_action_strings(cfg: OmegaConf) -> OmegaConf:
 
 def convert_noise_strings(cfg: OmegaConf) -> OmegaConf:
     """Convert string noise keys to MemoryType enums."""
-    # Import here to avoid circular import
-    from sim import MemoryType
 
     noise_dict = {}
     for noise_str, value in cfg.world.noise.items():
@@ -82,8 +79,6 @@ def convert_noise_strings(cfg: OmegaConf) -> OmegaConf:
 
 def build_world(cfg: OmegaConf):
     """Build a World instance from configuration."""
-    # Import here to avoid circular import
-    from sim import World, Agent
 
     # Convert string keys to enums
     cfg = convert_action_strings(cfg)
