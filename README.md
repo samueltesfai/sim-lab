@@ -1,35 +1,47 @@
 # Simulation Lab: Social Network Behavior Experiments
 
-This repository is a simulation lab designed to study and experiment with the behaviors of social networks. It provides a working simulation kernel and a visualization system to observe the dynamics of agents interacting within a social network. The goal is to explore and experiment with different simulation rules to see if interesting behaviors emerge.
+<p align="center">
+  <img src="docs/assets/demo.gif" alt="Simulation demo">
+</p>
+
+This repository is a simulation lab for studying belief dynamics and information diffusion in directed social networks. It provides a simulation kernel and live visualization system for observing how agents interact, exchange information, and update beliefs over time.
 
 ---
 
 ## Features
 
 ### 1. **Simulation Kernel**
-The simulation kernel models a social network where agents:
-- **Observe** claims with noisy evidence.
-- **Communicate** beliefs to other agents.
-- **Verify** claims with direct evidence.
-- **Update** their beliefs based on interactions and trust levels.
+The simulation kernel models a directed social network where agents:
+
+- **Receive passive observations** from the world with noisy evidence
+- **Communicate** beliefs to specific neighbors
+- **Broadcast** beliefs to all outgoing neighbors
+- **Verify** claims with direct evidence
+- **Update** beliefs from accumulated memories using trust-weighted learning
 
 The kernel supports:
-- Configurable agent behaviors and interaction rules.
-- Dynamic belief updates based on memory and evidence.
-- A simple event-driven simulation loop.
+
+- Configurable world and agent parameters through YAML config files
+- Dynamic belief updates based on memory and evidence
+- A discrete-time simulation loop with per-step logging
 
 ### 2. **Visualization System**
-The visualization system renders the social network in real-time, allowing you to observe:
-- Agent positions and belief states.
-- Active edges representing communication events.
-- Overlays for observed, verified, and heard agents.
-- Interactive tooltips for detailed agent information.
+The visualization system renders the social network in real time, allowing you to observe:
 
-### 3. **Extensibility**
-The simulation is designed to be modular:
-- Add new agent behaviors or interaction rules.
-- Customize the visualization components.
-- Experiment with different network structures and layouts.
+- Agent positions and belief states
+- Directed communication and broadcast edges
+- Overlays for observed, verified, and receiving agents
+- Interactive tooltips for detailed agent information
+
+### 3. **Configuration**
+Simulation scenarios are defined in `configs/` and loaded through `config.py`.
+
+Current example configs include:
+
+- `configs/default.yaml`
+- `configs/high_noise.yaml`
+
+See the [model documentation](docs/model.md) for details on the simulation design.
 
 ---
 
@@ -42,41 +54,34 @@ Install the required dependencies using uv:
 uv sync
 ```
 
-Or if you don't have uv installed:
-
-```bash
-# Install uv (Linux/macOS)
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Install dependencies
-uv sync
-```
-
 ### 2. Run the Simulation
 Run the simulation with visualization:
 
 ```bash
-uv run python run_viz.py
+uv run python main.py
 ```
 
-You can customize the simulation parameters using command-line arguments:
+Run a different scenario:
 
 ```bash
-uv run python run_viz.py --num-agents 20 --steps 1000 --rng-seed 123
+uv run python main.py --config configs/high_noise.yaml
 ```
 
-### 3. Experiment with Rules
-Modify the simulation logic in `sim.py` to experiment with:
+Adjust runtime/view parameters (use `-h` for help):
 
-- Agent decision-making rules.
-- Communication dynamics.
-- Trust and memory mechanisms.
+```bash
+uv run python main.py --config configs/default.yaml --steps 1000 --pause-time 0.05
+```
 
 ---
 
 ## Next Steps
-The current focus is on experimenting with the simulation rules to observe emergent behaviors. Some ideas to explore:
 
-- How do different trust dynamics affect belief propagation?
-- What happens when agents have varying levels of noise in their observations?
-- How does the network structure influence the spread of information?
+Planned directions for the project include:
+
+- Adding more scenario presets and config-driven experiments
+- Improving logging and summary metrics for action selection and belief alignment
+- Writing notebook-based case studies for specific simulation runs
+- Exploring heterogeneous agent profiles and alternative network structures
+- Extending the decision model toward explicit utility or expected utility
+- Investigating richer trust dynamics and misinformation behaviors
