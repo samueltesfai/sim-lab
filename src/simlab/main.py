@@ -1,6 +1,7 @@
-from viz import run_live
 import argparse
-from config import load_config, build_world
+
+from simlab.viz import run_viz
+from simlab.config import load_config, build_world
 
 
 if __name__ == "__main__":
@@ -55,7 +56,7 @@ if __name__ == "__main__":
         else next(iter(cfg.world.truths.keys()))
     )
 
-    run_live(
+    run_viz(
         world,
         steps=args.steps,
         claim_id=claim_id,

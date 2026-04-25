@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from typing import Any
 from collections import defaultdict
 from enum import Enum
 import random
@@ -57,6 +56,19 @@ class Memory:
     source: int | None
     claim_id: int | None
     evidence: float | None
+
+
+@dataclass(slots=True)
+class Snapshot:
+    tick: int
+    claim_id: int
+    observed_ids: list[int]
+    verified_ids: list[int]
+    communicate_edges: list[tuple[int, int]]
+    broadcast_edges: list[tuple[int, int]]
+    belief_before: dict[int, float]
+    belief_after: dict[int, float]
+    agent_updates: int
 
 
 class Agent:
@@ -449,7 +461,6 @@ class World:
         observation_probability: float = 0.1,
     ):
         self._agents = {a.id: a for a in agents}
-        self.last_step: dict[str, Any] | None = {}
         self.tick = 0
         self.rng = random.Random(rng_seed)
         self.noise = {
@@ -572,18 +583,11 @@ class World:
         """
         belief_before = {aid: a.beliefs[claim_id] for aid, a in self._agents.items()}
 
-        self.last_step = {
-            "tick": self.tick,
-            "claim_id": claim_id,
-            "agent_updates": 0,
-            "observed_ids": [],
-            "verified_ids": [],
-            "communicate_edges": [],
-            "broadcast_edges": [],
-            "belief_before": belief_before,
-        }
-
-        self.last_step["observed_ids"] = self.deliver_observation()
+        observed_ids = self.deliver_observation()
+        verified_ids: list[int] = []
+        communicate_edges: list[tuple[int, int]] = []
+        broadcast_edges: list[tuple[int, int]] = []
+        agent_updates = 0
 
         for agent in self.agents:
             action = agent.choose_action(self)
@@ -592,38 +596,41 @@ class World:
             # Track what happened
             match action.type:
                 case ActionType.VERIFY:
-                    self.last_step["verified_ids"].append(agent.id)
+                    verified_ids.append(agent.id)
                 case ActionType.COMMUNICATE:
-                    self.last_step["communicate_edges"].append(
-                        (agent.id, action.target_agent_id)
-                    )
+                    communicate_edges.append((agent.id, action.target_agent_id))
                 case ActionType.BROADCAST:
-                    self.last_step["broadcast_edges"].extend(
+                    broadcast_edges.extend(
                         [(agent.id, rid) for rid in self.network[agent.id]]
                     )
 
         # Update beliefs for all agents with new memories
         for agent in self.agents:
-            self.last_step["agent_updates"] += agent.update_beliefs()
+            agent_updates += agent.update_beliefs()
 
         belief_after = {aid: a.beliefs[claim_id] for aid, a in self._agents.items()}
-        self.last_step["belief_after"] = belief_after
+        snapshot = Snapshot(
+            tick=self.tick,
+            claim_id=claim_id,
+            observed_ids=observed_ids,
+            verified_ids=verified_ids,
+            communicate_edges=communicate_edges,
+            broadcast_edges=broadcast_edges,
+            belief_before=belief_before,
+            belief_after=belief_after,
+            agent_updates=agent_updates,
+        )
 
         self.tick += 1
         if self.tick % 10 == 0:
-            self.log_step()
+            self.log_step(snapshot)
 
-    def log_step(self):
-        if not self.last_step:
-            print("No step data yet.")
-            return
+        return snapshot
 
-        claim_id = self.last_step["claim_id"]
-        before = self.last_step["belief_before"]
-        after = self.last_step.get(
-            "belief_after",
-            {aid: a.beliefs[claim_id] for aid, a in self._agents.items()},
-        )
+    def log_step(self, snapshot: Snapshot):
+        claim_id = snapshot.claim_id
+        before = snapshot.belief_before
+        after = snapshot.belief_after
 
         vals = list(after.values())
         n = len(vals)
@@ -664,16 +671,16 @@ class World:
         top_degree = sorted(degrees, key=lambda t: t[1], reverse=True)[:3]
 
         print(
-            f"Tick {self.last_step['tick']:4d} | claim {claim_id} | "
+            f"Tick {snapshot.tick:4d} | claim {claim_id} | "
             f"belief mean={mean:.3f} std={std:.3f} min={mn:.3f} max={mx:.3f} | "
             f"q10={q10:.3f} q50={q50:.3f} q90={q90:.3f} | "
             f"<0.2={low:.2f} >0.8={high:.2f} | "
             f"Δabs_mean={mean_abs_delta:.4f} Δmax={max_abs_delta:.4f} | "
-            f"events: com={len(self.last_step['communicate_edges'])} | "
-            f"bcast={len(self.last_step['broadcast_edges'])} | "
-            f"obs={len(self.last_step['observed_ids'])} | "
-            f"ver={len(self.last_step['verified_ids'])} | "
-            f"updates={self.last_step['agent_updates']}"
+            f"events: com={len(snapshot.communicate_edges)} | "
+            f"bcast={len(snapshot.broadcast_edges)} | "
+            f"obs={len(snapshot.observed_ids)} | "
+            f"ver={len(snapshot.verified_ids)} | "
+            f"updates={snapshot.agent_updates}"
         )
 
         # optional second line with “who changed / who’s connected”
@@ -684,7 +691,7 @@ class World:
 
 
 if __name__ == "__main__":
-    from config import load_config, build_world
+    from simlab.config import load_config, build_world
 
     config_path = "configs/default.yaml"
     cfg = load_config(config_path)

@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 import networkx as nx
 import numpy as np
-from sim import World
+from simlab.sim import World
 
 
 @dataclass(frozen=True)

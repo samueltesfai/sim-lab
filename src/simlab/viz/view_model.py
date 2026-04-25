@@ -1,6 +1,6 @@
 from dataclasses import dataclass
-from viz.scene import Scene
-from sim import World
+from simlab.viz.scene import Scene
+from simlab.sim import World, Snapshot
 
 
 @dataclass(frozen=True)
@@ -24,17 +24,31 @@ class ViewModel:
     pos: dict[int, tuple[float, float]]  # node positions
 
 
-def compute_viewmodel(world: World, scene: Scene, claim_id: int) -> ViewModel:
-    ls = world.last_step or {}
+def _step_get(step_snapshot: Snapshot | dict | None, key: str, default):
+    if step_snapshot is None:
+        return default
+    if isinstance(step_snapshot, dict):
+        return step_snapshot.get(key, default)
+    return getattr(step_snapshot, key, default)
+
+
+def compute_viewmodel(
+    world: World,
+    scene: Scene,
+    claim_id: int,
+    step_snapshot: Snapshot | dict | None = None,
+    latest_metrics=None,
+) -> ViewModel:
+    # `latest_metrics` is intentionally unused for now (future telemetry wiring).
 
     beliefs = {a.id: a.beliefs[claim_id] for a in world.agents}
     mem_counts = {a.id: len(a.memory) for a in world.agents}
 
-    observed = ls.get("observed_ids", [])
-    verified = ls.get("verified_ids", [])
+    observed = _step_get(step_snapshot, "observed_ids", [])
+    verified = _step_get(step_snapshot, "verified_ids", [])
 
-    communicate_edges = ls.get("communicate_edges", [])
-    broadcast_edges = ls.get("broadcast_edges", [])
+    communicate_edges = _step_get(step_snapshot, "communicate_edges", [])
+    broadcast_edges = _step_get(step_snapshot, "broadcast_edges", [])
 
     # directed union, deduplicated while preserving direction
     active_edges = list(dict.fromkeys(communicate_edges + broadcast_edges))
