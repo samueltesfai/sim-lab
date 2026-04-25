@@ -4,7 +4,7 @@ from simlab.viz import run_viz
 from simlab.config import load_config, build_world
 
 
-if __name__ == "__main__":
+def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "-f",
@@ -44,6 +44,7 @@ if __name__ == "__main__":
         default=0.25,
         help="Pause time between animation frames (seconds)",
     )
+
     args = parser.parse_args()
 
     cfg = load_config(args.config)
@@ -64,3 +65,7 @@ if __name__ == "__main__":
         layout_seed=args.layout_seed,
         pause_time=args.pause_time,
     )
+
+
+if __name__ == "__main__":
+    main()

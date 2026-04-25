@@ -58,19 +58,19 @@ uv sync
 Run the simulation with visualization:
 
 ```bash
-uv run python -m simlab.main
+uv run python -m simlab
 ```
 
 Run a different scenario:
 
 ```bash
-uv run python -m simlab.main --config configs/high_noise.yaml
+uv run python -m simlab --config configs/high_noise.yaml
 ```
 
 Adjust runtime/view parameters (use `-h` for help):
 
 ```bash
-uv run python -m simlab.main --config configs/default.yaml --steps 1000 --pause-time 0.05
+uv run python -m simlab --config configs/default.yaml --steps 1000 --pause-time 0.05
 ```
 
 ---
