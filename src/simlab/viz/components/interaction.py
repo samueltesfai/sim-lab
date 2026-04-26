@@ -99,7 +99,7 @@ class HoverTooltip(_VizComponent):
 
         out_deg = self.scene.degrees.get(node, 0)
         in_deg = self.scene.G.in_degree(node)
-        mem = vm.mem_counts.get(node, 0)
+        mem = vm.agent_memory_sizes.get(node, 0)
 
         tags = []
         if node in vm.observed_ids:

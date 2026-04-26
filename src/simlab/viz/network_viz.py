@@ -3,7 +3,7 @@ import numpy as np
 import time
 
 from simlab.sim import World, Snapshot
-from simlab.telemetry import Telemetry
+from simlab.telemetry import Telemetry, TelemetryRow
 
 from simlab.viz.scene import build_scene
 from simlab.viz.view_model import compute_viewmodel
@@ -77,7 +77,7 @@ class NetworkViz:
             comp.add_to_canvas(self.ax, self.fig)
         self._initialized = True
 
-    def draw(self, snapshot: Snapshot | None = None):
+    def draw(self, snapshot: Snapshot | None = None, telemetry_row: TelemetryRow | None = None):
         if not self._initialized:
             self._init_artists()
 
@@ -85,6 +85,7 @@ class NetworkViz:
             self.scene,
             claim_id=self.claim_id,
             step_snapshot=snapshot,
+            telemetry_row=telemetry_row,
         )
 
         for comp in self.components:
@@ -118,25 +119,24 @@ def run_viz(
     # Create telemetry if not provided
     if telemetry is None:
         telemetry = Telemetry()
+    
+    # Record initial state and log
+    print(telemetry.record_initial(world).format_cli())
 
-    snapshot = None
     for i in range(steps):
-        if world.tick % draw_every == 0:
-            viz.draw(snapshot)
-            plt.pause(pause_time)
-
-        # Time the step
         start_time = time.perf_counter()
         snapshot = world.step()
         end_time = time.perf_counter()
         step_runtime_ms = (end_time - start_time) * 1000
 
-        # Record telemetry
         row = telemetry.record(snapshot, world, step_runtime_ms=step_runtime_ms)
 
-        # Print telemetry every N steps
-        if (i + 1) % log_every == 0:
+        if log_every and (i + 1) % log_every == 0:
             print(row.format_cli())
+
+        if snapshot.tick % draw_every == 0:
+            viz.draw(snapshot=snapshot, telemetry_row=row)
+            plt.pause(pause_time)
 
     plt.ioff()
     plt.show()

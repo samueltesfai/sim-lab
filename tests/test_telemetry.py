@@ -291,11 +291,11 @@ def test_run_viz_records_telemetry_history(mocker):
 
     # Then
     # Verify that telemetry.history has the correct number of entries
-    assert len(telemetry.history) == 5
+    assert len(telemetry.history) == 6
 
-    # Verify that tick values are correct (0, 1, 2, 3, 4)
+    # Verify that tick values are correct (-1, 0, 1, 2, 3, 4)
     ticks = [row.tick for row in telemetry.history]
-    assert ticks == [0, 1, 2, 3, 4]
+    assert ticks == [-1, 0, 1, 2, 3, 4]
 
     # Verify that latest is the last snapshot
     assert telemetry.latest.tick == 4

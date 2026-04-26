@@ -191,6 +191,87 @@ class Telemetry:
             return 0.0, 0.0
         n = len(deltas)
         return (sum(deltas) / n, max(deltas))
+    
+    def record_initial(self, world: World, *, tick: int = -1) -> TelemetryRow:
+        """
+        Record the initial world state before any simulation steps are processed.
+
+        This creates a baseline telemetry row so plots and analysis can show
+        where the simulation started before tick 0 was applied.
+
+        Event/action counts are zero because no step has occurred yet.
+        Delta metrics are zero because there is no prior recorded state.
+        """
+        # -----------------------------------------------------------------
+        # 1. Capture current full belief state from the world
+        # agent_id -> claim_id -> belief_value
+        # -----------------------------------------------------------------
+        agent_beliefs: dict[int, dict[int, float]] = {
+            agent.id: dict(agent.beliefs)
+            for agent in world.agents
+        }
+
+        # -----------------------------------------------------------------
+        # 2. Global belief distribution
+        # -----------------------------------------------------------------
+        vals: list[float] = []
+        for claim_beliefs in agent_beliefs.values():
+            vals.extend(claim_beliefs.values())
+
+        belief_mean, belief_std, belief_min, belief_max = self._belief_stats(vals)
+
+        # -----------------------------------------------------------------
+        # 3. Initial movement / volatility
+        # No prior state exists, so deltas are zero.
+        # -----------------------------------------------------------------
+        mean_abs_delta = 0.0
+        max_abs_delta = 0.0
+
+        # -----------------------------------------------------------------
+        # 4. Truth alignment against static world truths
+        # -----------------------------------------------------------------
+        (
+            mean_abs_error_to_truth,
+            max_abs_error_to_truth,
+            fraction_truth_aligned,
+        ) = self._truth_alignment_stats(agent_beliefs, world.truths)
+
+        # -----------------------------------------------------------------
+        # 5. Initial baseline row
+        # No events/actions have happened yet.
+        # -----------------------------------------------------------------
+        row = TelemetryRow(
+            tick=tick,
+            belief_mean=belief_mean,
+            belief_std=belief_std,
+            belief_min=belief_min,
+            belief_max=belief_max,
+            mean_abs_delta=mean_abs_delta,
+            max_abs_delta=max_abs_delta,
+            mean_abs_error_to_truth=mean_abs_error_to_truth,
+            max_abs_error_to_truth=max_abs_error_to_truth,
+            fraction_truth_aligned=fraction_truth_aligned,
+            num_observations=0,
+            num_verifications=0,
+            num_communicate_edges=0,
+            num_broadcast_edges=0,
+            num_agent_updates=0,
+            step_runtime_ms=None,
+        )
+
+        self.latest = row
+
+        if self.keep_history:
+            self.history.append(row)
+            if self.max_history is not None and len(self.history) > self.max_history:
+                extra = len(self.history) - self.max_history
+                del self.history[0:extra]
+
+        # Important: set previous beliefs so tick 0 deltas compare against
+        # the actual initial world state.
+        self._previous_beliefs = agent_beliefs
+
+        return row
 
     def record(
         self,
