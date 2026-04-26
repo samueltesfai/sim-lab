@@ -1,7 +1,9 @@
 import argparse
+import time
 
 from simlab.viz import run_viz
 from simlab.config import load_config, build_world
+from simlab.telemetry import Telemetry, format_telemetry_row
 
 
 def main() -> None:
@@ -44,6 +46,25 @@ def main() -> None:
         default=0.25,
         help="Pause time between animation frames (seconds)",
     )
+    parser.add_argument(
+        "-l",
+        "--log-every",
+        type=int,
+        default=10,
+        help="Print telemetry every N steps (default: 10)",
+    )
+    parser.add_argument(
+        "--export-telemetry-csv",
+        type=str,
+        default=None,
+        help="Export telemetry history to CSV file after run",
+    )
+    parser.add_argument(
+        "--export-telemetry-jsonl",
+        type=str,
+        default=None,
+        help="Export telemetry history to JSONL file after run",
+    )
 
     args = parser.parse_args()
 
@@ -57,6 +78,9 @@ def main() -> None:
         else next(iter(cfg.world.truths.keys()))
     )
 
+    # Create telemetry object
+    telemetry = Telemetry()
+
     run_viz(
         world,
         steps=args.steps,
@@ -64,7 +88,17 @@ def main() -> None:
         draw_every=args.draw_every,
         layout_seed=args.layout_seed,
         pause_time=args.pause_time,
+        telemetry=telemetry,
+        log_every=args.log_every,
     )
+
+    # Export telemetry if requested
+    if args.export_telemetry_csv:
+        telemetry.export_csv(args.export_telemetry_csv)
+        print(f"Telemetry exported to {args.export_telemetry_csv}")
+    if args.export_telemetry_jsonl:
+        telemetry.export_jsonl(args.export_telemetry_jsonl)
+        print(f"Telemetry exported to {args.export_telemetry_jsonl}")
 
 
 if __name__ == "__main__":

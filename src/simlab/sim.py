@@ -61,14 +61,12 @@ class Memory:
 @dataclass(slots=True)
 class Snapshot:
     tick: int
-    claim_id: int
     observed_ids: list[int]
     verified_ids: list[int]
     communicate_edges: list[tuple[int, int]]
     broadcast_edges: list[tuple[int, int]]
-    belief_before: dict[int, float]
-    belief_after: dict[int, float]
     agent_updates: int
+    beliefs: dict[int, dict[int, float]]
 
 
 class Agent:
@@ -570,7 +568,7 @@ class World:
                 claim_id=claim_id,
             )
 
-    def step(self, claim_id: int = 0):
+    def step(self) -> Snapshot:
         """
         Advance the simulation by one tick, allowing each agent to perform their
         actions and update their beliefs based on their interactions with the world
@@ -578,11 +576,9 @@ class World:
 
         :param self: The world instance
         :type self: World
-        :param claim_id: The claim ID to track and log
-        :type claim_id: int
+        :return: The snapshot of the world after the step
+        :rtype: Snapshot
         """
-        belief_before = {aid: a.beliefs[claim_id] for aid, a in self._agents.items()}
-
         observed_ids = self.deliver_observation()
         verified_ids: list[int] = []
         communicate_edges: list[tuple[int, int]] = []
@@ -608,86 +604,21 @@ class World:
         for agent in self.agents:
             agent_updates += agent.update_beliefs()
 
-        belief_after = {aid: a.beliefs[claim_id] for aid, a in self._agents.items()}
+        # Create full belief snapshot for all agents and all claims
+        beliefs = {aid: dict(agent.beliefs) for aid, agent in self._agents.items()}
+
         snapshot = Snapshot(
             tick=self.tick,
-            claim_id=claim_id,
             observed_ids=observed_ids,
             verified_ids=verified_ids,
             communicate_edges=communicate_edges,
             broadcast_edges=broadcast_edges,
-            belief_before=belief_before,
-            belief_after=belief_after,
             agent_updates=agent_updates,
+            beliefs=beliefs,
         )
 
         self.tick += 1
-        if self.tick % 10 == 0:
-            self.log_step(snapshot)
-
         return snapshot
-
-    def log_step(self, snapshot: Snapshot):
-        claim_id = snapshot.claim_id
-        before = snapshot.belief_before
-        after = snapshot.belief_after
-
-        vals = list(after.values())
-        n = len(vals)
-        if n == 0:
-            print(f"Tick {self.tick}: no agents")
-            return
-
-        vals_sorted = sorted(vals)
-        mean = sum(vals) / n
-        var = sum((x - mean) ** 2 for x in vals) / n
-        std = math.sqrt(var)
-        mn, mx = vals_sorted[0], vals_sorted[-1]
-
-        def q(p: float) -> float:
-            # simple nearest-rank quantile
-            idx = int(round(p * (n - 1)))
-            return vals_sorted[idx]
-
-        q10, q50, q90 = q(0.10), q(0.50), q(0.90)
-
-        low = sum(x < 0.2 for x in vals) / n
-        high = sum(x > 0.8 for x in vals) / n
-
-        # movement metrics
-        deltas = [abs(after[aid] - before[aid]) for aid in after.keys()]
-        mean_abs_delta = sum(deltas) / n
-        max_abs_delta = max(deltas)
-
-        # who moved most?
-        top_movers = sorted(
-            ((aid, after[aid] - before[aid]) for aid in after.keys()),
-            key=lambda t: abs(t[1]),
-            reverse=True,
-        )[:3]
-
-        # simple “influence suspects”: highest out-degree in network
-        degrees = [(aid, len(self.network.get(aid, []))) for aid in self._agents.keys()]
-        top_degree = sorted(degrees, key=lambda t: t[1], reverse=True)[:3]
-
-        print(
-            f"Tick {snapshot.tick:4d} | claim {claim_id} | "
-            f"belief mean={mean:.3f} std={std:.3f} min={mn:.3f} max={mx:.3f} | "
-            f"q10={q10:.3f} q50={q50:.3f} q90={q90:.3f} | "
-            f"<0.2={low:.2f} >0.8={high:.2f} | "
-            f"Δabs_mean={mean_abs_delta:.4f} Δmax={max_abs_delta:.4f} | "
-            f"events: com={len(snapshot.communicate_edges)} | "
-            f"bcast={len(snapshot.broadcast_edges)} | "
-            f"obs={len(snapshot.observed_ids)} | "
-            f"ver={len(snapshot.verified_ids)} | "
-            f"updates={snapshot.agent_updates}"
-        )
-
-        # optional second line with “who changed / who’s connected”
-        print(
-            f"  top movers (aid, Δbelief): {[(aid, round(db, 4)) for aid, db in top_movers]}"
-        )
-        print(f"  top degree (aid, out_degree): {top_degree}")
 
 
 if __name__ == "__main__":
@@ -698,4 +629,4 @@ if __name__ == "__main__":
     world = build_world(cfg)
 
     for _ in range(100):
-        world.step(claim_id=0)
+        world.step()

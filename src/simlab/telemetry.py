@@ -11,7 +11,6 @@ from simlab.sim import Snapshot, World
 @dataclass(frozen=True, slots=True)
 class TelemetryRow:
     tick: int
-    claim_id: int
 
     belief_mean: float
     belief_std: float
@@ -32,7 +31,6 @@ class TelemetryRow:
     def to_dict(self) -> dict[str, int | float | None]:
         return {
             "tick": self.tick,
-            "claim_id": self.claim_id,
             "belief_mean": self.belief_mean,
             "belief_std": self.belief_std,
             "belief_min": self.belief_min,
@@ -58,6 +56,7 @@ class Telemetry:
 
         self.latest: TelemetryRow | None = None
         self.history: list[TelemetryRow] = []
+        self._previous_beliefs: dict[int, dict[int, float]] | None = None
 
     @staticmethod
     def _belief_stats(vals: list[float]) -> tuple[float, float, float, float]:
@@ -71,11 +70,29 @@ class Telemetry:
 
     @staticmethod
     def _delta_stats(
-        before: dict[int, float], after: dict[int, float]
+        before: dict[int, dict[int, float]] | None,
+        after: dict[int, dict[int, float]],
     ) -> tuple[float, float]:
-        if not after:
+        """
+        Compute delta statistics by comparing current beliefs against previous beliefs.
+        Flattens all agent_id -> claim_id -> belief_value pairs into a single list.
+        """
+        if before is None:
+            # First call - no previous state to compare against
             return 0.0, 0.0
-        deltas = [abs(after[aid] - before.get(aid, after[aid])) for aid in after.keys()]
+
+        deltas = []
+        for agent_id, claim_beliefs in after.items():
+            if agent_id in before:
+                prev_claims = before[agent_id]
+                for claim_id, belief_value in claim_beliefs.items():
+                    prev_value = prev_claims.get(claim_id, belief_value)
+                    deltas.append(abs(belief_value - prev_value))
+            else:
+                # New agent - all beliefs are new
+                for belief_value in claim_beliefs.values():
+                    deltas.append(belief_value)
+
         if not deltas:
             return 0.0, 0.0
         n = len(deltas)
@@ -91,15 +108,18 @@ class Telemetry:
         # world is accepted for future extensions; current metrics derive from snapshot.
         _ = world
 
-        vals = list(snapshot.belief_after.values())
+        # Flatten snapshot.beliefs values into one list of floats
+        vals = []
+        for claim_beliefs in snapshot.beliefs.values():
+            vals.extend(claim_beliefs.values())
+
         belief_mean, belief_std, belief_min, belief_max = self._belief_stats(vals)
         mean_abs_delta, max_abs_delta = self._delta_stats(
-            snapshot.belief_before, snapshot.belief_after
+            self._previous_beliefs, snapshot.beliefs
         )
 
         row = TelemetryRow(
             tick=snapshot.tick,
-            claim_id=snapshot.claim_id,
             belief_mean=belief_mean,
             belief_std=belief_std,
             belief_min=belief_min,
@@ -121,6 +141,9 @@ class Telemetry:
                 extra = len(self.history) - self.max_history
                 del self.history[0:extra]
 
+        # Update previous beliefs for next delta computation
+        self._previous_beliefs = snapshot.beliefs
+
         return row
 
     def export_csv(self, path: str) -> None:
@@ -136,3 +159,27 @@ class Telemetry:
         with open(path, "w", encoding="utf-8") as f:
             for r in self.history:
                 f.write(json.dumps(r.to_dict(), ensure_ascii=False) + "\n")
+
+
+def format_telemetry_row(row: TelemetryRow) -> str:
+    """
+    Format a TelemetryRow for CLI output.
+
+    :param row: The telemetry row to format
+    :type row: TelemetryRow
+    :return: Formatted string representation
+    :rtype: str
+    """
+    runtime_str = f" | runtime={row.step_runtime_ms:.3f}ms" if row.step_runtime_ms is not None else ""
+    return (
+        f"Tick {row.tick:4d} | "
+        f"belief mean={row.belief_mean:.3f} std={row.belief_std:.3f} "
+        f"min={row.belief_min:.3f} max={row.belief_max:.3f} | "
+        f"Δabs_mean={row.mean_abs_delta:.4f} Δmax={row.max_abs_delta:.4f} | "
+        f"events: com={row.num_communicate_edges} | "
+        f"bcast={row.num_broadcast_edges} | "
+        f"obs={row.num_observations} | "
+        f"ver={row.num_verifications} | "
+        f"updates={row.num_agent_updates}"
+        f"{runtime_str}"
+    )

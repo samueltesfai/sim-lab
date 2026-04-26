@@ -1,7 +1,9 @@
 import matplotlib.pyplot as plt
 import numpy as np
+import time
 
 from simlab.sim import World, Snapshot
+from simlab.telemetry import Telemetry, format_telemetry_row
 
 from simlab.viz.scene import build_scene
 from simlab.viz.view_model import compute_viewmodel
@@ -100,6 +102,8 @@ def run_viz(
     draw_every: int = 1,
     layout_seed: int = 0,
     pause_time: float = 0.001,
+    telemetry: Telemetry | None = None,
+    log_every: int = 10,
 ):
     """
     Simple visualization loop using plt.pause.
@@ -108,8 +112,24 @@ def run_viz(
     plt.ion()
     plt.show()
 
-    for _ in range(steps):
-        snapshot = world.step(claim_id=claim_id)
+    # Create telemetry if not provided
+    if telemetry is None:
+        telemetry = Telemetry()
+
+    for i in range(steps):
+        # Time the step
+        start_time = time.perf_counter()
+        snapshot = world.step()
+        end_time = time.perf_counter()
+        step_runtime_ms = (end_time - start_time) * 1000
+
+        # Record telemetry
+        row = telemetry.record(snapshot, world, step_runtime_ms=step_runtime_ms)
+
+        # Print telemetry every N steps
+        if (i + 1) % log_every == 0:
+            print(format_telemetry_row(row))
+
         if world.tick % draw_every == 0:
             viz.draw(snapshot)
             plt.pause(pause_time)

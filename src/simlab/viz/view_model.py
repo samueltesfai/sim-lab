@@ -40,7 +40,10 @@ def compute_viewmodel(
     latest_metrics=None,
 ) -> ViewModel:
     # `latest_metrics` is intentionally unused for now (future telemetry wiring).
+    _ = latest_metrics
 
+    # Get beliefs for the selected claim_id from world state
+    # Optionally, could also get from snapshot.beliefs if needed
     beliefs = {a.id: a.beliefs[claim_id] for a in world.agents}
     mem_counts = {a.id: len(a.memory) for a in world.agents}
 

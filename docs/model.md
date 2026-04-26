@@ -345,14 +345,14 @@ Interpretation:
 
 A single tick of `World.step()` currently proceeds as follows:
 
-1. snapshot current beliefs for logging
-2. initialize `last_step`
-3. deliver passive observations (`deliver_observation`)
-4. let each agent choose and execute an intentional action
-5. update beliefs for all agents with pending memories
-6. snapshot resulting beliefs
-7. advance `tick`
-8. optionally log metrics
+1. deliver passive observations (`deliver_observation`)
+2. let each agent choose and execute an intentional action
+3. update beliefs for all agents with pending memories
+4. snapshot full beliefs for all agents and claims
+5. advance `tick`
+6. return Snapshot
+
+Note: Logging and metric computation are now handled externally via the `Telemetry` class, not within `World.step()`.
 
 ### Observation phase
 
