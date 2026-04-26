@@ -6,7 +6,7 @@ import sys
 
 import pytest
 
-from simlab.sim import Agent, World
+from simlab.sim import Agent, World, Snapshot
 from simlab.telemetry import Telemetry
 
 
@@ -244,3 +244,75 @@ def test_format_telemetry_row_without_runtime():
     assert "runtime" not in formatted
     # But should include other fields
     assert "Tick" in formatted
+
+
+def test_run_viz_records_telemetry_history(mocker):
+    """Test that run_viz correctly records telemetry history with mocked world.step."""
+    from simlab.viz import run_viz
+    # Given
+    world = _build_world(3)
+    telemetry = Telemetry()
+
+    snapshots = [
+        Snapshot(
+            tick=tick,
+            beliefs={0: {0: 0.5, 1: 0.5}, 1: {0: 0.5, 1: 0.5}, 2: {0: 0.5, 1: 0.5}},
+            observed_ids=[0],
+            verified_ids=[],
+            communicate_edges=[],
+            broadcast_edges=[],
+            agent_updates=1,
+        )
+        for tick in range(5)
+    ]
+
+    # Mock matplotlib functions to avoid GUI
+    mocker.patch.object(world, "step", side_effect=snapshots)
+    mocker.patch("simlab.viz.network_viz.plt.ion")
+    mocker.patch("simlab.viz.network_viz.plt.show")
+    mocker.patch("simlab.viz.network_viz.plt.pause")
+    mocker.patch("simlab.viz.network_viz.plt.ioff")
+
+    # When
+    run_viz(
+        world,
+        steps=5,
+        telemetry=telemetry,
+        log_every=10,  # Don't print during test
+        draw_every=10,  # Don't draw during test
+    )
+
+    # Then
+    # Verify that telemetry.history has the correct number of entries
+    assert len(telemetry.history) == 5
+
+    # Verify that tick values are correct (0, 1, 2, 3, 4)
+    ticks = [row.tick for row in telemetry.history]
+    assert ticks == [0, 1, 2, 3, 4]
+
+    # Verify that latest is the last snapshot
+    assert telemetry.latest.tick == 4
+
+
+def test_run_viz_validates_log_every():
+    """Test that run_viz raises ValueError when log_every is 0."""
+    from simlab.viz import run_viz
+    import pytest
+
+    world = _build_world(3)
+    telemetry = Telemetry()
+
+    with pytest.raises(ValueError, match="log_every must be >= 1"):
+        run_viz(world, steps=5, telemetry=telemetry, log_every=0)
+
+
+def test_run_viz_validates_draw_every():
+    """Test that run_viz raises ValueError when draw_every is 0."""
+    from simlab.viz import run_viz
+    import pytest
+
+    world = _build_world(3)
+    telemetry = Telemetry()
+
+    with pytest.raises(ValueError, match="draw_every must be >= 1"):
+        run_viz(world, steps=5, telemetry=telemetry, draw_every=0)

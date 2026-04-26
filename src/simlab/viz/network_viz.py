@@ -108,6 +108,11 @@ def run_viz(
     """
     Simple visualization loop using plt.pause.
     """
+    if log_every <= 0:
+        raise ValueError("log_every must be >= 1")
+    if draw_every <= 0:
+        raise ValueError("draw_every must be >= 1")
+
     viz = NetworkViz(world, claim_id=claim_id, layout_seed=layout_seed)
     plt.ion()
     plt.show()
@@ -123,9 +128,11 @@ def run_viz(
         end_time = time.perf_counter()
         step_runtime_ms = (end_time - start_time) * 1000
 
+        # Record telemetry
+        row = telemetry.record(snapshot, world, step_runtime_ms=step_runtime_ms)
+
         # Print telemetry every N steps
         if (i + 1) % log_every == 0:
-            row = telemetry.record(snapshot, world, step_runtime_ms=step_runtime_ms)
             print(row.format_cli())
 
         if world.tick % draw_every == 0:
