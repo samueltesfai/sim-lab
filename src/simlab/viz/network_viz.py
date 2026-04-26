@@ -132,7 +132,7 @@ def run_viz(
         step_runtime_ms = (end_time - start_time) * 1000
 
         # Record telemetry
-        row = telemetry.record(snapshot, step_runtime_ms=step_runtime_ms)
+        row = telemetry.record(snapshot, world, step_runtime_ms=step_runtime_ms)
 
         # Print telemetry every N steps
         if (i + 1) % log_every == 0:

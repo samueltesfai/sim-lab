@@ -42,7 +42,7 @@ def test_record_populates_latest_and_history():
     telemetry = Telemetry()
 
     snapshot = world.step()
-    row = telemetry.record(snapshot)
+    row = telemetry.record(snapshot, world)
 
     assert telemetry.latest == row
     assert telemetry.history == [row]
@@ -60,7 +60,7 @@ def test_record_computes_global_belief_metrics():
     world = _build_world(4)
     telemetry = Telemetry()
     snapshot = world.step()
-    row = telemetry.record(snapshot)
+    row = telemetry.record(snapshot, world)
 
     # Flatten all beliefs from snapshot
     vals = []
@@ -83,7 +83,7 @@ def test_first_telemetry_row_has_zero_deltas():
     world = _build_world(3)
     telemetry = Telemetry()
     snapshot = world.step()
-    row = telemetry.record(snapshot)
+    row = telemetry.record(snapshot, world)
 
     assert row.mean_abs_delta == 0.0
     assert row.max_abs_delta == 0.0
@@ -96,13 +96,13 @@ def test_second_telemetry_row_computes_deltas():
 
     # First step - deltas should be zero
     s0 = world.step()
-    r0 = telemetry.record(s0)
+    r0 = telemetry.record(s0, world)
     assert r0.mean_abs_delta == 0.0
     assert r0.max_abs_delta == 0.0
 
     # Second step - deltas should be computed
     s1 = world.step()
-    r1 = telemetry.record(s1)
+    r1 = telemetry.record(s1, world)
 
     # Compute expected deltas manually
     deltas = []
@@ -128,11 +128,11 @@ def test_max_history_trims_oldest():
     telemetry = Telemetry(max_history=2)
 
     s0 = world.step()
-    r0 = telemetry.record(s0)
+    r0 = telemetry.record(s0, world)
     s1 = world.step()
-    r1 = telemetry.record(s1)
+    r1 = telemetry.record(s1, world)
     s2 = world.step()
-    r2 = telemetry.record(s2)
+    r2 = telemetry.record(s2, world)
 
     assert telemetry.latest == r2
     assert telemetry.history == [r1, r2]
@@ -143,8 +143,8 @@ def test_export_jsonl_and_csv(tmp_path):
     world = _build_world(3)
     telemetry = Telemetry()
 
-    telemetry.record(world.step(), step_runtime_ms=1.23)
-    telemetry.record(world.step(), step_runtime_ms=None)
+    telemetry.record(world.step(), world, step_runtime_ms=1.23)
+    telemetry.record(world.step(), world, step_runtime_ms=None)
 
     jsonl_path = tmp_path / "telemetry.jsonl"
     csv_path = tmp_path / "telemetry.csv"
@@ -157,6 +157,9 @@ def test_export_jsonl_and_csv(tmp_path):
     objs = [json.loads(line) for line in lines]
     assert objs[0]["tick"] == telemetry.history[0].tick
     assert "step_runtime_ms" in objs[0]
+    assert "mean_abs_error_to_truth" in objs[0]
+    assert "max_abs_error_to_truth" in objs[0]
+    assert "fraction_truth_aligned" in objs[0]
     # claim_id should not be in the exported data
     assert "claim_id" not in objs[0]
 
@@ -164,6 +167,9 @@ def test_export_jsonl_and_csv(tmp_path):
         rows = list(csv.DictReader(f))
     assert len(rows) == 2
     assert rows[0]["tick"] == str(telemetry.history[0].tick)
+    assert "mean_abs_error_to_truth" in rows[0]
+    assert "max_abs_error_to_truth" in rows[0]
+    assert "fraction_truth_aligned" in rows[0]
     # claim_id should not be in the CSV header
     assert "claim_id" not in rows[0]
 
@@ -195,7 +201,7 @@ def test_telemetry_records_from_repeated_steps():
     # Record multiple steps
     for _ in range(5):
         snapshot = world.step()
-        telemetry.record(snapshot)
+        telemetry.record(snapshot, world)
 
     # Should have 5 rows in history
     assert len(telemetry.history) == 5
@@ -211,7 +217,7 @@ def test_format_telemetry_row_includes_core_fields():
     world = _build_world(3)
     telemetry = Telemetry()
     snapshot = world.step()
-    row = telemetry.record(snapshot, step_runtime_ms=1.5)
+    row = telemetry.record(snapshot, world, step_runtime_ms=1.5)
 
     formatted = row.format_cli()
 
@@ -236,7 +242,7 @@ def test_format_telemetry_row_without_runtime():
     world = _build_world(3)
     telemetry = Telemetry()
     snapshot = world.step()
-    row = telemetry.record(snapshot, step_runtime_ms=None)
+    row = telemetry.record(snapshot, world, step_runtime_ms=None)
 
     formatted = row.format_cli()
 
