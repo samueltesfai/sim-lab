@@ -3,7 +3,7 @@ import numpy as np
 import time
 
 from simlab.sim import World, Snapshot
-from simlab.telemetry import Telemetry, format_telemetry_row
+from simlab.telemetry import Telemetry
 
 from simlab.viz.scene import build_scene
 from simlab.viz.view_model import compute_viewmodel
@@ -123,12 +123,10 @@ def run_viz(
         end_time = time.perf_counter()
         step_runtime_ms = (end_time - start_time) * 1000
 
-        # Record telemetry
-        row = telemetry.record(snapshot, world, step_runtime_ms=step_runtime_ms)
-
         # Print telemetry every N steps
         if (i + 1) % log_every == 0:
-            print(format_telemetry_row(row))
+            row = telemetry.record(snapshot, world, step_runtime_ms=step_runtime_ms)
+            print(row.format_cli())
 
         if world.tick % draw_every == 0:
             viz.draw(snapshot)

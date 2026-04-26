@@ -3,7 +3,7 @@ import time
 
 from simlab.viz import run_viz
 from simlab.config import load_config, build_world
-from simlab.telemetry import Telemetry, format_telemetry_row
+from simlab.telemetry import Telemetry
 
 
 def main() -> None:

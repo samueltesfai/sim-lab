@@ -44,6 +44,26 @@ class TelemetryRow:
             "num_agent_updates": self.num_agent_updates,
             "step_runtime_ms": self.step_runtime_ms,
         }
+    
+    def format_cli(self) -> str:
+        runtime_str = (
+            f" | runtime={self.step_runtime_ms:.3f}ms"
+            if self.step_runtime_ms is not None
+            else ""
+        )
+
+        return (
+            f"Tick {self.tick:4d} | "
+            f"belief mean={self.belief_mean:.3f} std={self.belief_std:.3f} "
+            f"min={self.belief_min:.3f} max={self.belief_max:.3f} | "
+            f"Δabs_mean={self.mean_abs_delta:.4f} Δmax={self.max_abs_delta:.4f} | "
+            f"events: com={self.num_communicate_edges} | "
+            f"bcast={self.num_broadcast_edges} | "
+            f"obs={self.num_observations} | "
+            f"ver={self.num_verifications} | "
+            f"updates={self.num_agent_updates}"
+            f"{runtime_str}"
+        )
 
 
 class Telemetry:
@@ -160,26 +180,3 @@ class Telemetry:
             for r in self.history:
                 f.write(json.dumps(r.to_dict(), ensure_ascii=False) + "\n")
 
-
-def format_telemetry_row(row: TelemetryRow) -> str:
-    """
-    Format a TelemetryRow for CLI output.
-
-    :param row: The telemetry row to format
-    :type row: TelemetryRow
-    :return: Formatted string representation
-    :rtype: str
-    """
-    runtime_str = f" | runtime={row.step_runtime_ms:.3f}ms" if row.step_runtime_ms is not None else ""
-    return (
-        f"Tick {row.tick:4d} | "
-        f"belief mean={row.belief_mean:.3f} std={row.belief_std:.3f} "
-        f"min={row.belief_min:.3f} max={row.belief_max:.3f} | "
-        f"Δabs_mean={row.mean_abs_delta:.4f} Δmax={row.max_abs_delta:.4f} | "
-        f"events: com={row.num_communicate_edges} | "
-        f"bcast={row.num_broadcast_edges} | "
-        f"obs={row.num_observations} | "
-        f"ver={row.num_verifications} | "
-        f"updates={row.num_agent_updates}"
-        f"{runtime_str}"
-    )

@@ -7,7 +7,7 @@ import sys
 import pytest
 
 from simlab.sim import Agent, World
-from simlab.telemetry import Telemetry, format_telemetry_row
+from simlab.telemetry import Telemetry
 
 
 def _build_world(n: int = 5) -> World:
@@ -213,7 +213,7 @@ def test_format_telemetry_row_includes_core_fields():
     snapshot = world.step()
     row = telemetry.record(snapshot, world, step_runtime_ms=1.5)
 
-    formatted = format_telemetry_row(row)
+    formatted = row.format_cli()
 
     # Check that core fields are present in the formatted string
     assert "Tick" in formatted
@@ -238,7 +238,7 @@ def test_format_telemetry_row_without_runtime():
     snapshot = world.step()
     row = telemetry.record(snapshot, world, step_runtime_ms=None)
 
-    formatted = format_telemetry_row(row)
+    formatted = row.format_cli()
 
     # Should not include runtime
     assert "runtime" not in formatted
