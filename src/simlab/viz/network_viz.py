@@ -15,7 +15,6 @@ from simlab.viz.components.interaction import HoverTooltip
 
 class NetworkViz:
     def __init__(self, world: World, claim_id: int = 0, layout_seed: int = 0):
-        self.world = world
         self.claim_id = claim_id
         self.scene = build_scene(world, layout_seed=layout_seed)
 
@@ -78,12 +77,11 @@ class NetworkViz:
             comp.add_to_canvas(self.ax, self.fig)
         self._initialized = True
 
-    def draw(self, snapshot: Snapshot):
+    def draw(self, snapshot: Snapshot | None = None):
         if not self._initialized:
             self._init_artists()
 
         vm = compute_viewmodel(
-            self.world,
             self.scene,
             claim_id=self.claim_id,
             step_snapshot=snapshot,
@@ -121,7 +119,12 @@ def run_viz(
     if telemetry is None:
         telemetry = Telemetry()
 
+    snapshot = None
     for i in range(steps):
+        if world.tick % draw_every == 0:
+            viz.draw(snapshot)
+            plt.pause(pause_time)
+
         # Time the step
         start_time = time.perf_counter()
         snapshot = world.step()
@@ -129,15 +132,11 @@ def run_viz(
         step_runtime_ms = (end_time - start_time) * 1000
 
         # Record telemetry
-        row = telemetry.record(snapshot, world, step_runtime_ms=step_runtime_ms)
+        row = telemetry.record(snapshot, step_runtime_ms=step_runtime_ms)
 
         # Print telemetry every N steps
         if (i + 1) % log_every == 0:
             print(row.format_cli())
-
-        if world.tick % draw_every == 0:
-            viz.draw(snapshot)
-            plt.pause(pause_time)
 
     plt.ioff()
     plt.show()

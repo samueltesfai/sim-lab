@@ -7,8 +7,8 @@ from simlab.sim import World
 @dataclass(frozen=True)
 class Scene:
     """
-    A handy container for attributes related to graph data structure. Along with `build_scene` factory, helps isolate
-    graph creation logic (i.e. testing different layouts).
+    A handy container for attributes related to graph data structure and static world context.
+    Along with `build_scene` factory, helps isolate graph creation logic (i.e. testing different layouts).
     """
 
     G: nx.DiGraph
@@ -16,7 +16,7 @@ class Scene:
     nodes: list[int]
     degrees: dict[int, int]
     sizes_base: np.ndarray
-
+    truths: dict[int, bool]  # Pointer to world.truths; implies mutability during sim if new truth generation is enabled
 
 def build_scene(world: World, layout_seed: int = 0) -> Scene:
     G = nx.DiGraph()
@@ -38,4 +38,5 @@ def build_scene(world: World, layout_seed: int = 0) -> Scene:
         nodes=nodes,
         degrees=degrees,
         sizes_base=sizes_base,
+        truths=world.truths,
     )

@@ -33,7 +33,6 @@ def _step_get(step_snapshot: Snapshot | dict | None, key: str, default):
 
 
 def compute_viewmodel(
-    world: World,
     scene: Scene,
     claim_id: int,
     step_snapshot: Snapshot | dict | None = None,
@@ -42,10 +41,8 @@ def compute_viewmodel(
     # `latest_metrics` is intentionally unused for now (future telemetry wiring).
     _ = latest_metrics
 
-    # Get beliefs for the selected claim_id from world state
-    # Optionally, could also get from snapshot.beliefs if needed
-    beliefs = {a.id: a.beliefs[claim_id] for a in world.agents}
-    mem_counts = {a.id: len(a.memory) for a in world.agents}
+    agent_beliefs = _step_get(step_snapshot, "agent_beliefs", {})
+    beliefs = {a: agent_beliefs[a][claim_id] for a in agent_beliefs}
 
     observed = _step_get(step_snapshot, "observed_ids", [])
     verified = _step_get(step_snapshot, "verified_ids", [])
@@ -60,17 +57,18 @@ def compute_viewmodel(
     broadcast_receivers = list({r for (_s, r) in broadcast_edges})
 
     vals = list(beliefs.values())
-    mean = sum(vals) / len(vals)
-    mn, mx = min(vals), max(vals)
+    mean = sum(vals) / len(vals) if vals else 0.0
+    mn = min(vals) if vals else 0.0
+    mx = max(vals) if vals else 0.0
 
-    truth_bool = world.truths.get(claim_id, False)
+    truth_bool = scene.truths.get(claim_id, False)
 
     return ViewModel(
-        tick=world.tick,
+        tick=_step_get(step_snapshot, "tick", 0),
         claim_id=claim_id,
         truth_bool=truth_bool,
         beliefs=beliefs,
-        mem_counts=mem_counts,
+        mem_counts=_step_get(step_snapshot, "agent_memory_sizes", {}),
         observed_ids=observed,
         verified_ids=verified,
         active_edges=active_edges,

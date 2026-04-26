@@ -121,21 +121,17 @@ class Telemetry:
     def record(
         self,
         snapshot: Snapshot,
-        world: World,
         *,
         step_runtime_ms: float | None = None,
     ) -> TelemetryRow:
-        # world is accepted for future extensions; current metrics derive from snapshot.
-        _ = world
-
         # Flatten snapshot.beliefs values into one list of floats
         vals = []
-        for claim_beliefs in snapshot.beliefs.values():
+        for claim_beliefs in snapshot.agent_beliefs.values():
             vals.extend(claim_beliefs.values())
 
         belief_mean, belief_std, belief_min, belief_max = self._belief_stats(vals)
         mean_abs_delta, max_abs_delta = self._delta_stats(
-            self._previous_beliefs, snapshot.beliefs
+            self._previous_beliefs, snapshot.agent_beliefs
         )
 
         row = TelemetryRow(
@@ -150,7 +146,7 @@ class Telemetry:
             num_verifications=len(snapshot.verified_ids),
             num_communicate_edges=len(snapshot.communicate_edges),
             num_broadcast_edges=len(snapshot.broadcast_edges),
-            num_agent_updates=int(snapshot.agent_updates),
+            num_agent_updates=int(snapshot.n_agent_updates),
             step_runtime_ms=step_runtime_ms,
         )
 
@@ -162,7 +158,7 @@ class Telemetry:
                 del self.history[0:extra]
 
         # Update previous beliefs for next delta computation
-        self._previous_beliefs = snapshot.beliefs
+        self._previous_beliefs = snapshot.agent_beliefs
 
         return row
 

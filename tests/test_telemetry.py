@@ -21,11 +21,11 @@ def test_snapshot_stores_full_beliefs():
     snapshot = world.step()
 
     # Check that beliefs is a dict with agent_id as keys
-    assert isinstance(snapshot.beliefs, dict)
-    assert len(snapshot.beliefs) == 3
+    assert isinstance(snapshot.agent_beliefs, dict)
+    assert len(snapshot.agent_beliefs) == 3
 
     # Check that each agent's beliefs is a dict with claim_id as keys
-    for agent_id, claim_beliefs in snapshot.beliefs.items():
+    for agent_id, claim_beliefs in snapshot.agent_beliefs.items():
         assert isinstance(agent_id, int)
         assert isinstance(claim_beliefs, dict)
         # Each agent should have beliefs for at least claim 0
@@ -42,7 +42,7 @@ def test_record_populates_latest_and_history():
     telemetry = Telemetry()
 
     snapshot = world.step()
-    row = telemetry.record(snapshot, world)
+    row = telemetry.record(snapshot)
 
     assert telemetry.latest == row
     assert telemetry.history == [row]
@@ -52,7 +52,7 @@ def test_record_populates_latest_and_history():
     assert row.num_verifications == len(snapshot.verified_ids)
     assert row.num_communicate_edges == len(snapshot.communicate_edges)
     assert row.num_broadcast_edges == len(snapshot.broadcast_edges)
-    assert row.num_agent_updates == snapshot.agent_updates
+    assert row.num_agent_updates == snapshot.n_agent_updates
 
 
 def test_record_computes_global_belief_metrics():
@@ -60,11 +60,11 @@ def test_record_computes_global_belief_metrics():
     world = _build_world(4)
     telemetry = Telemetry()
     snapshot = world.step()
-    row = telemetry.record(snapshot, world)
+    row = telemetry.record(snapshot)
 
     # Flatten all beliefs from snapshot
     vals = []
-    for claim_beliefs in snapshot.beliefs.values():
+    for claim_beliefs in snapshot.agent_beliefs.values():
         vals.extend(claim_beliefs.values())
 
     n = len(vals)
@@ -83,7 +83,7 @@ def test_first_telemetry_row_has_zero_deltas():
     world = _build_world(3)
     telemetry = Telemetry()
     snapshot = world.step()
-    row = telemetry.record(snapshot, world)
+    row = telemetry.record(snapshot)
 
     assert row.mean_abs_delta == 0.0
     assert row.max_abs_delta == 0.0
@@ -96,19 +96,19 @@ def test_second_telemetry_row_computes_deltas():
 
     # First step - deltas should be zero
     s0 = world.step()
-    r0 = telemetry.record(s0, world)
+    r0 = telemetry.record(s0)
     assert r0.mean_abs_delta == 0.0
     assert r0.max_abs_delta == 0.0
 
     # Second step - deltas should be computed
     s1 = world.step()
-    r1 = telemetry.record(s1, world)
+    r1 = telemetry.record(s1)
 
     # Compute expected deltas manually
     deltas = []
-    for agent_id, claim_beliefs in s1.beliefs.items():
-        if agent_id in s0.beliefs:
-            prev_claims = s0.beliefs[agent_id]
+    for agent_id, claim_beliefs in s1.agent_beliefs.items():
+        if agent_id in s0.agent_beliefs:
+            prev_claims = s0.agent_beliefs[agent_id]
             for claim_id, belief_value in claim_beliefs.items():
                 prev_value = prev_claims.get(claim_id, belief_value)
                 deltas.append(abs(belief_value - prev_value))
@@ -128,11 +128,11 @@ def test_max_history_trims_oldest():
     telemetry = Telemetry(max_history=2)
 
     s0 = world.step()
-    r0 = telemetry.record(s0, world)
+    r0 = telemetry.record(s0)
     s1 = world.step()
-    r1 = telemetry.record(s1, world)
+    r1 = telemetry.record(s1)
     s2 = world.step()
-    r2 = telemetry.record(s2, world)
+    r2 = telemetry.record(s2)
 
     assert telemetry.latest == r2
     assert telemetry.history == [r1, r2]
@@ -143,8 +143,8 @@ def test_export_jsonl_and_csv(tmp_path):
     world = _build_world(3)
     telemetry = Telemetry()
 
-    telemetry.record(world.step(), world, step_runtime_ms=1.23)
-    telemetry.record(world.step(), world, step_runtime_ms=None)
+    telemetry.record(world.step(), step_runtime_ms=1.23)
+    telemetry.record(world.step(), step_runtime_ms=None)
 
     jsonl_path = tmp_path / "telemetry.jsonl"
     csv_path = tmp_path / "telemetry.csv"
@@ -195,7 +195,7 @@ def test_telemetry_records_from_repeated_steps():
     # Record multiple steps
     for _ in range(5):
         snapshot = world.step()
-        telemetry.record(snapshot, world)
+        telemetry.record(snapshot)
 
     # Should have 5 rows in history
     assert len(telemetry.history) == 5
@@ -211,7 +211,7 @@ def test_format_telemetry_row_includes_core_fields():
     world = _build_world(3)
     telemetry = Telemetry()
     snapshot = world.step()
-    row = telemetry.record(snapshot, world, step_runtime_ms=1.5)
+    row = telemetry.record(snapshot, step_runtime_ms=1.5)
 
     formatted = row.format_cli()
 
@@ -236,7 +236,7 @@ def test_format_telemetry_row_without_runtime():
     world = _build_world(3)
     telemetry = Telemetry()
     snapshot = world.step()
-    row = telemetry.record(snapshot, world, step_runtime_ms=None)
+    row = telemetry.record(snapshot, step_runtime_ms=None)
 
     formatted = row.format_cli()
 
@@ -256,12 +256,13 @@ def test_run_viz_records_telemetry_history(mocker):
     snapshots = [
         Snapshot(
             tick=tick,
-            beliefs={0: {0: 0.5, 1: 0.5}, 1: {0: 0.5, 1: 0.5}, 2: {0: 0.5, 1: 0.5}},
+            agent_beliefs={0: {0: 0.5, 1: 0.5}, 1: {0: 0.5, 1: 0.5}, 2: {0: 0.5, 1: 0.5}},
             observed_ids=[0],
             verified_ids=[],
             communicate_edges=[],
             broadcast_edges=[],
-            agent_updates=1,
+            n_agent_updates=1,
+            agent_memory_sizes={0: 0, 1: 0, 2: 0},
         )
         for tick in range(5)
     ]

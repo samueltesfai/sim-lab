@@ -60,13 +60,14 @@ class Memory:
 
 @dataclass(slots=True)
 class Snapshot:
-    tick: int
-    observed_ids: list[int]
-    verified_ids: list[int]
-    communicate_edges: list[tuple[int, int]]
-    broadcast_edges: list[tuple[int, int]]
-    agent_updates: int
-    beliefs: dict[int, dict[int, float]]
+    tick: int  # Current simulation tick
+    observed_ids: list[int]  # List of agent IDs that observed a claim this tick
+    verified_ids: list[int]  # List of agent IDs that verified a claim this tick
+    communicate_edges: list[tuple[int, int]]  # List of (source, target) agent pairs that communicated this tick
+    broadcast_edges: list[tuple[int, int]]  # List of (source, target) agent pairs that broadcasted this tick
+    n_agent_updates: int  # Number of agents that updated this tick
+    agent_beliefs: dict[int, dict[int, float]]  # {agent_id: {claim_id: belief}}
+    agent_memory_sizes: dict[int, int]  # {agent_id: memory_size}
 
 
 class Agent:
@@ -197,6 +198,17 @@ class Agent:
         :type claim_id: int
         """
         self.add_memory(world, MemoryType.VERIFY, claim_id=claim_id)
+
+    @property
+    def memory_size(self) -> int:
+        """
+        Get the size of the agent's memory.
+
+        :param self:
+        :return: The size of the agent's memory
+        :rtype: int
+        """
+        return len(self.memory)
 
     def confidence(self, claim_id: int) -> float:
         """
@@ -613,8 +625,9 @@ class World:
             verified_ids=verified_ids,
             communicate_edges=communicate_edges,
             broadcast_edges=broadcast_edges,
-            agent_updates=agent_updates,
-            beliefs=beliefs,
+            n_agent_updates=agent_updates,
+            agent_beliefs=beliefs,
+            agent_memory_sizes={agent.id: agent.memory_size for agent in self.agents},
         )
 
         self.tick += 1
