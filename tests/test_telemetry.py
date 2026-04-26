@@ -8,6 +8,9 @@ import pytest
 
 from simlab.sim import Agent, World, Snapshot
 from simlab.telemetry import Telemetry
+from simlab.viz import run_viz
+from simlab.viz.view_model import compute_viewmodel
+from simlab.viz.scene import build_scene
 
 
 def _build_world(n: int = 5) -> World:
@@ -254,7 +257,6 @@ def test_format_telemetry_row_without_runtime():
 
 def test_run_viz_records_telemetry_history(mocker):
     """Test that run_viz correctly records telemetry history with mocked world.step."""
-    from simlab.viz import run_viz
     # Given
     world = _build_world(3)
     telemetry = Telemetry()
@@ -303,9 +305,6 @@ def test_run_viz_records_telemetry_history(mocker):
 
 def test_run_viz_validates_log_every():
     """Test that run_viz raises ValueError when log_every is 0."""
-    from simlab.viz import run_viz
-    import pytest
-
     world = _build_world(3)
     telemetry = Telemetry()
 
@@ -315,11 +314,143 @@ def test_run_viz_validates_log_every():
 
 def test_run_viz_validates_draw_every():
     """Test that run_viz raises ValueError when draw_every is 0."""
-    from simlab.viz import run_viz
-    import pytest
-
     world = _build_world(3)
     telemetry = Telemetry()
 
     with pytest.raises(ValueError, match="draw_every must be >= 1"):
         run_viz(world, steps=5, telemetry=telemetry, draw_every=0)
+
+
+def test_record_initial_creates_baseline_row():
+    """Test that record_initial creates a baseline telemetry row with zero events."""
+    world = _build_world(3)
+    telemetry = Telemetry()
+
+    row = telemetry.record_initial(world)
+
+    # Default tick is -1
+    assert row.tick == -1
+
+    # All event counts should be zero
+    assert row.num_observations == 0
+    assert row.num_verifications == 0
+    assert row.num_communicate_edges == 0
+    assert row.num_broadcast_edges == 0
+    assert row.num_agent_updates == 0
+
+    # Deltas should be zero (no prior state)
+    assert row.mean_abs_delta == 0.0
+    assert row.max_abs_delta == 0.0
+
+    # Truth alignment should be computed
+    assert row.mean_abs_error_to_truth >= 0.0
+    assert row.max_abs_error_to_truth >= 0.0
+    assert 0.0 <= row.fraction_truth_aligned <= 1.0
+
+    # Runtime should be None
+    assert row.step_runtime_ms is None
+
+    # Should be in history and latest
+    assert telemetry.latest == row
+    assert row in telemetry.history
+
+
+def test_record_initial_with_custom_tick():
+    """Test that record_initial accepts custom tick value."""
+    world = _build_world(3)
+    telemetry = Telemetry()
+
+    row = telemetry.record_initial(world, tick=0)
+
+    assert row.tick == 0
+
+
+def test_record_initial_sets_previous_beliefs():
+    """Test that record_initial sets _previous_beliefs for subsequent delta calculations."""
+    world = _build_world(3)
+    telemetry = Telemetry()
+
+    # Record initial state
+    telemetry.record_initial(world)
+
+    # Verify _previous_beliefs was set
+    assert telemetry._previous_beliefs is not None
+    assert len(telemetry._previous_beliefs) == 3
+
+    # Take a step and record
+    snapshot = world.step()
+    row = telemetry.record(snapshot, world)
+
+    # Deltas should now be computed against the initial state
+    # (may be zero if beliefs didn't change, but the comparison should happen)
+    assert row.mean_abs_delta >= 0.0
+    assert row.max_abs_delta >= 0.0
+
+
+def test_compute_viewmodel_requires_snapshot():
+    """Test that compute_viewmodel requires a non-None Snapshot."""
+    world = _build_world(3)
+    scene = build_scene(world)
+
+    # Should raise TypeError or AttributeError when snapshot is None
+    with pytest.raises((TypeError, AttributeError)):
+        compute_viewmodel(scene, claim_id=0, step_snapshot=None)
+
+
+def test_compute_viewmodel_with_telemetry_row():
+    """Test that compute_viewmodel accepts telemetry_row parameter."""
+    world = _build_world(3)
+    scene = build_scene(world)
+    snapshot = world.step()
+    telemetry = Telemetry()
+    telemetry_row = telemetry.record(snapshot, world)
+
+    # Should work with telemetry_row (even if unused currently)
+    vm = compute_viewmodel(scene, claim_id=0, step_snapshot=snapshot, telemetry_row=telemetry_row)
+
+    assert vm.tick == snapshot.tick
+    assert vm.claim_id == 0
+
+
+def test_run_viz_draw_uses_snapshot_tick(mocker):
+    """Test that run_viz draw check uses snapshot.tick instead of world.tick."""
+    world = _build_world(3)
+    telemetry = Telemetry()
+
+    # Create snapshots with specific tick values
+    snapshots = [
+        Snapshot(
+            tick=tick,
+            agent_beliefs={0: {0: 0.5, 1: 0.5}, 1: {0: 0.5, 1: 0.5}, 2: {0: 0.5, 1: 0.5}},
+            observed_ids=[],
+            verified_ids=[],
+            communicate_edges=[],
+            broadcast_edges=[],
+            n_agent_updates=0,
+            agent_memory_sizes={0: 0, 1: 0, 2: 0},
+        )
+        for tick in range(5)
+    ]
+
+    # Mock world.step to return snapshots
+    mocker.patch.object(world, "step", side_effect=snapshots)
+    mocker.patch("simlab.viz.network_viz.plt.ion")
+    mocker.patch("simlab.viz.network_viz.plt.show")
+    mocker.patch("simlab.viz.network_viz.plt.pause")
+    mocker.patch("simlab.viz.network_viz.plt.ioff")
+
+    # Track draw calls
+    draw_calls = []
+    original_draw = mocker.patch("simlab.viz.network_viz.NetworkViz.draw", side_effect=lambda *args, **kwargs: draw_calls.append((args, kwargs)))
+
+    # Run with draw_every=2 (should draw on ticks 0, 2, 4)
+    run_viz(
+        world,
+        steps=5,
+        telemetry=telemetry,
+        log_every=10,
+        draw_every=2,
+    )
+
+    # Verify draw was called for ticks 0, 2, 4
+    assert len(draw_calls) == 3
