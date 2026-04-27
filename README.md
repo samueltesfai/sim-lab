@@ -4,7 +4,7 @@
   <img src="docs/assets/demo.gif" alt="Simulation demo">
 </p>
 
-This repository is a simulation lab for studying belief dynamics and information diffusion in directed social networks. It provides a simulation kernel and live visualization system for observing how agents interact, exchange information, and update beliefs over time.
+This repository is a simulation lab for studying belief dynamics and information diffusion in directed social networks. It provides a simulation kernel, telemetry system, and live visualization for observing how agents interact, exchange information, and update beliefs over time.
 
 ---
 
@@ -23,9 +23,18 @@ The kernel supports:
 
 - Configurable world and agent parameters through YAML config files
 - Dynamic belief updates based on memory and evidence
-- A discrete-time simulation loop with per-step logging
+- Per-step snapshots capturing full belief state and event data
 
-### 2. **Visualization System**
+### 2. **Telemetry System**
+The telemetry system tracks simulation metrics across all agents and claims:
+
+- Global belief statistics (mean, std, min, max)
+- Belief change deltas between steps
+- Event counts (observations, verifications, communications, broadcasts)
+- Step runtime measurement
+- Export to CSV and JSONL formats
+
+### 3. **Visualization System**
 The visualization system renders the social network in real time, allowing you to observe:
 
 - Agent positions and belief states
@@ -33,7 +42,7 @@ The visualization system renders the social network in real time, allowing you t
 - Overlays for observed, verified, and receiving agents
 - Interactive tooltips for detailed agent information
 
-### 3. **Configuration**
+### 4. **Configuration**
 Simulation scenarios are defined in `configs/` and loaded through `config.py`.
 
 Current example configs include:
@@ -58,19 +67,33 @@ uv sync
 Run the simulation with visualization:
 
 ```bash
-uv run python main.py
+uv run python -m simlab
 ```
 
 Run a different scenario:
 
 ```bash
-uv run python main.py --config configs/high_noise.yaml
+uv run python -m simlab --config configs/high_noise.yaml
 ```
 
 Adjust runtime/view parameters (use `-h` for help):
 
 ```bash
-uv run python main.py --config configs/default.yaml --steps 1000 --pause-time 0.05
+uv run python -m simlab --config configs/default.yaml --steps 1000 --pause-time 0.05
+```
+
+### 3. Telemetry Options
+Control logging frequency:
+
+```bash
+uv run python -m simlab --log-every 5
+```
+
+Export telemetry after the run:
+
+```bash
+uv run python -m simlab --export-telemetry-csv output.csv
+uv run python -m simlab --export-telemetry-jsonl output.jsonl
 ```
 
 ---
@@ -80,7 +103,7 @@ uv run python main.py --config configs/default.yaml --steps 1000 --pause-time 0.
 Planned directions for the project include:
 
 - Adding more scenario presets and config-driven experiments
-- Improving logging and summary metrics for action selection and belief alignment
+- Improving telemetry metrics for action selection and belief alignment
 - Writing notebook-based case studies for specific simulation runs
 - Exploring heterogeneous agent profiles and alternative network structures
 - Extending the decision model toward explicit utility or expected utility
