@@ -113,7 +113,7 @@ def test_second_telemetry_row_computes_deltas():
         if agent_id in s0.agent_beliefs:
             prev_claims = s0.agent_beliefs[agent_id]
             for claim_id, belief_value in claim_beliefs.items():
-                prev_value = prev_claims.get(claim_id, belief_value)
+                prev_value = prev_claims[claim_id]
                 deltas.append(abs(belief_value - prev_value))
 
     if deltas:
@@ -454,3 +454,73 @@ def test_run_viz_draw_uses_snapshot_tick(mocker):
 
     # Verify draw was called for ticks 0, 2, 4
     assert len(draw_calls) == 3
+
+
+def test_get_agent_beliefs_snapshot_materializes_known_claims_from_lazy_beliefs():
+    world = _build_world(3)
+
+    for agent in world.agents:
+        agent.beliefs.clear()
+
+    snapshot = world.get_agent_beliefs_snapshot()
+
+    assert set(snapshot.keys()) == {agent.id for agent in world.agents}
+
+    for agent in world.agents:
+        claim_beliefs = snapshot[agent.id]
+        assert set(claim_beliefs.keys()) == set(world.truths.keys())
+
+        for claim_id in world.truths:
+            assert isinstance(claim_beliefs[claim_id], float)
+
+
+def test_record_initial_materializes_known_claims_for_first_step_delta():
+    """Initial telemetry should store complete belief vectors for first-step delta computation."""
+    world = _build_world(3)
+    telemetry = Telemetry()
+
+    # Simulate lazy defaultdict state before any claim entries have been touched.
+    for agent in world.agents:
+        agent.beliefs.clear()
+
+    telemetry.record_initial(world)
+
+    assert telemetry._previous_beliefs is not None
+
+    for agent_id, claim_beliefs in telemetry._previous_beliefs.items():
+        assert set(claim_beliefs.keys()) == set(world.truths.keys()), (
+            f"Agent {agent_id} baseline beliefs did not include all known claims"
+        )
+
+
+def test_first_step_delta_uses_initial_belief_state():
+    """First real step delta should compare against initial telemetry baseline."""
+    world = _build_world(3)
+    telemetry = Telemetry()
+
+    for agent in world.agents:
+        agent.beliefs.clear()
+
+    telemetry.record_initial(world)
+    initial_beliefs = {
+        aid: dict(claims)
+        for aid, claims in telemetry._previous_beliefs.items()
+    }
+
+    snapshot = world.step()
+    row = telemetry.record(snapshot, world)
+
+    deltas = []
+    for agent_id, current_claims in snapshot.agent_beliefs.items():
+        previous_claims = initial_beliefs[agent_id]
+        for claim_id, current_value in current_claims.items():
+            previous_value = previous_claims[claim_id]
+            deltas.append(abs(current_value - previous_value))
+
+    assert deltas, "Expected at least one belief delta to compare"
+
+    expected_mean = sum(deltas) / len(deltas)
+    expected_max = max(deltas)
+
+    assert row.mean_abs_delta == pytest.approx(expected_mean)
+    assert row.max_abs_delta == pytest.approx(expected_max)

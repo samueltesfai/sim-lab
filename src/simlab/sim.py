@@ -512,6 +512,25 @@ class World:
     @property
     def edges(self) -> list[tuple[int, int]]:
         return [(src, dest) for src, nei in self.network.items() for dest in nei]
+    
+    def get_agent_beliefs_snapshot(self) -> dict[int, dict[int, float]]:
+        """
+        Return a complete belief snapshot for all agents and all known claims.
+
+        This intentionally indexes into each agent's belief defaultdict using the
+        world's known claim IDs, rather than calling dict(agent.beliefs), because
+        lazy defaultdict entries may not exist until accessed.
+        """
+        claim_ids = list(self.truths.keys())
+
+        return {
+            agent.id: {
+                claim_id: agent.beliefs[claim_id]
+                for claim_id in claim_ids
+            }
+            for agent in self.agents
+        }
+
 
     def get_agent(self, agent_id: int) -> Agent:
         return self._agents[agent_id]
@@ -617,7 +636,7 @@ class World:
             agent_updates += agent.update_beliefs()
 
         # Create full belief snapshot for all agents and all claims
-        beliefs = {aid: dict(agent.beliefs) for aid, agent in self._agents.items()}
+        beliefs = self.get_agent_beliefs_snapshot()
 
         snapshot = Snapshot(
             tick=self.tick,

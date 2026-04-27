@@ -41,7 +41,8 @@ def compute_viewmodel(
     communicate_edges = step_snapshot.communicate_edges
     broadcast_edges = step_snapshot.broadcast_edges
     agent_memory_sizes = step_snapshot.agent_memory_sizes
-    beliefs = {
+    agent_claim_beliefs = { 
+        # agent_id -> belief_value for the given claim
         agent_id: claim_beliefs.get(claim_id, 0.0)
         for agent_id, claim_beliefs in agent_beliefs.items()
     }
@@ -51,7 +52,7 @@ def compute_viewmodel(
     communicate_receivers = list({r for (_s, r) in communicate_edges})
     broadcast_receivers = list({r for (_s, r) in broadcast_edges})
 
-    vals = list(beliefs.values())
+    vals = list(agent_claim_beliefs.values())
     mean = sum(vals) / len(vals) if vals else 0.0
     mn = min(vals) if vals else 0.0
     mx = max(vals) if vals else 0.0
@@ -62,7 +63,7 @@ def compute_viewmodel(
         tick=tick,
         claim_id=claim_id,
         truth_bool=truth_bool,
-        beliefs=beliefs,
+        beliefs=agent_claim_beliefs,
         agent_memory_sizes=agent_memory_sizes,
         observed_ids=observed,
         verified_ids=verified,

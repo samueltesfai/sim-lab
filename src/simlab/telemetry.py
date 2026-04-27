@@ -206,10 +206,7 @@ class Telemetry:
         # 1. Capture current full belief state from the world
         # agent_id -> claim_id -> belief_value
         # -----------------------------------------------------------------
-        agent_beliefs: dict[int, dict[int, float]] = {
-            agent.id: dict(agent.beliefs)
-            for agent in world.agents
-        }
+        agent_beliefs: dict[int, dict[int, float]] = world.get_agent_beliefs_snapshot()
 
         # -----------------------------------------------------------------
         # 2. Global belief distribution
