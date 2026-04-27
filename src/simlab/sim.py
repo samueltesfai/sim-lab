@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from typing import Any
 from collections import defaultdict
 from enum import Enum
 import random
@@ -57,6 +56,18 @@ class Memory:
     source: int | None
     claim_id: int | None
     evidence: float | None
+
+
+@dataclass(slots=True)
+class Snapshot:
+    tick: int  # Current simulation tick
+    observed_ids: list[int]  # List of agent IDs that observed a claim this tick
+    verified_ids: list[int]  # List of agent IDs that verified a claim this tick
+    communicate_edges: list[tuple[int, int]]  # List of (source, target) agent pairs that communicated this tick
+    broadcast_edges: list[tuple[int, int]]  # List of (source, target) agent pairs that broadcasted this tick
+    n_agent_updates: int  # Number of agents that updated this tick
+    agent_beliefs: dict[int, dict[int, float]]  # {agent_id: {claim_id: belief}}
+    agent_memory_sizes: dict[int, int]  # {agent_id: memory_size}
 
 
 class Agent:
@@ -187,6 +198,17 @@ class Agent:
         :type claim_id: int
         """
         self.add_memory(world, MemoryType.VERIFY, claim_id=claim_id)
+
+    @property
+    def memory_size(self) -> int:
+        """
+        Get the size of the agent's memory.
+
+        :param self:
+        :return: The size of the agent's memory
+        :rtype: int
+        """
+        return len(self.memory)
 
     def confidence(self, claim_id: int) -> float:
         """
@@ -449,7 +471,6 @@ class World:
         observation_probability: float = 0.1,
     ):
         self._agents = {a.id: a for a in agents}
-        self.last_step: dict[str, Any] | None = {}
         self.tick = 0
         self.rng = random.Random(rng_seed)
         self.noise = {
@@ -491,6 +512,25 @@ class World:
     @property
     def edges(self) -> list[tuple[int, int]]:
         return [(src, dest) for src, nei in self.network.items() for dest in nei]
+    
+    def get_agent_beliefs_snapshot(self) -> dict[int, dict[int, float]]:
+        """
+        Return a complete belief snapshot for all agents and all known claims.
+
+        This intentionally indexes into each agent's belief defaultdict using the
+        world's known claim IDs, rather than calling dict(agent.beliefs), because
+        lazy defaultdict entries may not exist until accessed.
+        """
+        claim_ids = list(self.truths.keys())
+
+        return {
+            agent.id: {
+                claim_id: agent.beliefs[claim_id]
+                for claim_id in claim_ids
+            }
+            for agent in self.agents
+        }
+
 
     def get_agent(self, agent_id: int) -> Agent:
         return self._agents[agent_id]
@@ -559,7 +599,7 @@ class World:
                 claim_id=claim_id,
             )
 
-    def step(self, claim_id: int = 0):
+    def step(self) -> Snapshot:
         """
         Advance the simulation by one tick, allowing each agent to perform their
         actions and update their beliefs based on their interactions with the world
@@ -567,23 +607,14 @@ class World:
 
         :param self: The world instance
         :type self: World
-        :param claim_id: The claim ID to track and log
-        :type claim_id: int
+        :return: The snapshot of the world after the step
+        :rtype: Snapshot
         """
-        belief_before = {aid: a.beliefs[claim_id] for aid, a in self._agents.items()}
-
-        self.last_step = {
-            "tick": self.tick,
-            "claim_id": claim_id,
-            "agent_updates": 0,
-            "observed_ids": [],
-            "verified_ids": [],
-            "communicate_edges": [],
-            "broadcast_edges": [],
-            "belief_before": belief_before,
-        }
-
-        self.last_step["observed_ids"] = self.deliver_observation()
+        observed_ids = self.deliver_observation()
+        verified_ids: list[int] = []
+        communicate_edges: list[tuple[int, int]] = []
+        broadcast_edges: list[tuple[int, int]] = []
+        agent_updates = 0
 
         for agent in self.agents:
             action = agent.choose_action(self)
@@ -592,103 +623,42 @@ class World:
             # Track what happened
             match action.type:
                 case ActionType.VERIFY:
-                    self.last_step["verified_ids"].append(agent.id)
+                    verified_ids.append(agent.id)
                 case ActionType.COMMUNICATE:
-                    self.last_step["communicate_edges"].append(
-                        (agent.id, action.target_agent_id)
-                    )
+                    communicate_edges.append((agent.id, action.target_agent_id))
                 case ActionType.BROADCAST:
-                    self.last_step["broadcast_edges"].extend(
+                    broadcast_edges.extend(
                         [(agent.id, rid) for rid in self.network[agent.id]]
                     )
 
         # Update beliefs for all agents with new memories
         for agent in self.agents:
-            self.last_step["agent_updates"] += agent.update_beliefs()
+            agent_updates += agent.update_beliefs()
 
-        belief_after = {aid: a.beliefs[claim_id] for aid, a in self._agents.items()}
-        self.last_step["belief_after"] = belief_after
+        # Create full belief snapshot for all agents and all claims
+        beliefs = self.get_agent_beliefs_snapshot()
+
+        snapshot = Snapshot(
+            tick=self.tick,
+            observed_ids=observed_ids,
+            verified_ids=verified_ids,
+            communicate_edges=communicate_edges,
+            broadcast_edges=broadcast_edges,
+            n_agent_updates=agent_updates,
+            agent_beliefs=beliefs,
+            agent_memory_sizes={agent.id: agent.memory_size for agent in self.agents},
+        )
 
         self.tick += 1
-        if self.tick % 10 == 0:
-            self.log_step()
-
-    def log_step(self):
-        if not self.last_step:
-            print("No step data yet.")
-            return
-
-        claim_id = self.last_step["claim_id"]
-        before = self.last_step["belief_before"]
-        after = self.last_step.get(
-            "belief_after",
-            {aid: a.beliefs[claim_id] for aid, a in self._agents.items()},
-        )
-
-        vals = list(after.values())
-        n = len(vals)
-        if n == 0:
-            print(f"Tick {self.tick}: no agents")
-            return
-
-        vals_sorted = sorted(vals)
-        mean = sum(vals) / n
-        var = sum((x - mean) ** 2 for x in vals) / n
-        std = math.sqrt(var)
-        mn, mx = vals_sorted[0], vals_sorted[-1]
-
-        def q(p: float) -> float:
-            # simple nearest-rank quantile
-            idx = int(round(p * (n - 1)))
-            return vals_sorted[idx]
-
-        q10, q50, q90 = q(0.10), q(0.50), q(0.90)
-
-        low = sum(x < 0.2 for x in vals) / n
-        high = sum(x > 0.8 for x in vals) / n
-
-        # movement metrics
-        deltas = [abs(after[aid] - before[aid]) for aid in after.keys()]
-        mean_abs_delta = sum(deltas) / n
-        max_abs_delta = max(deltas)
-
-        # who moved most?
-        top_movers = sorted(
-            ((aid, after[aid] - before[aid]) for aid in after.keys()),
-            key=lambda t: abs(t[1]),
-            reverse=True,
-        )[:3]
-
-        # simple “influence suspects”: highest out-degree in network
-        degrees = [(aid, len(self.network.get(aid, []))) for aid in self._agents.keys()]
-        top_degree = sorted(degrees, key=lambda t: t[1], reverse=True)[:3]
-
-        print(
-            f"Tick {self.last_step['tick']:4d} | claim {claim_id} | "
-            f"belief mean={mean:.3f} std={std:.3f} min={mn:.3f} max={mx:.3f} | "
-            f"q10={q10:.3f} q50={q50:.3f} q90={q90:.3f} | "
-            f"<0.2={low:.2f} >0.8={high:.2f} | "
-            f"Δabs_mean={mean_abs_delta:.4f} Δmax={max_abs_delta:.4f} | "
-            f"events: com={len(self.last_step['communicate_edges'])} | "
-            f"bcast={len(self.last_step['broadcast_edges'])} | "
-            f"obs={len(self.last_step['observed_ids'])} | "
-            f"ver={len(self.last_step['verified_ids'])} | "
-            f"updates={self.last_step['agent_updates']}"
-        )
-
-        # optional second line with “who changed / who’s connected”
-        print(
-            f"  top movers (aid, Δbelief): {[(aid, round(db, 4)) for aid, db in top_movers]}"
-        )
-        print(f"  top degree (aid, out_degree): {top_degree}")
+        return snapshot
 
 
 if __name__ == "__main__":
-    from config import load_config, build_world
+    from simlab.config import load_config, build_world
 
     config_path = "configs/default.yaml"
     cfg = load_config(config_path)
     world = build_world(cfg)
 
     for _ in range(100):
-        world.step(claim_id=0)
+        world.step()

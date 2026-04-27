@@ -1,19 +1,20 @@
 import matplotlib.pyplot as plt
 import numpy as np
+import time
 
-from sim import World
+from simlab.sim import World, Snapshot
+from simlab.telemetry import Telemetry, TelemetryRow
 
-from viz.scene import build_scene
-from viz.view_model import compute_viewmodel
-from viz.components.graph import BaseEdges, Nodes
-from viz.components.overlays import RingOverlay, ActiveEdges
-from viz.components.ui import HUDText, LegendComponent
-from viz.components.interaction import HoverTooltip
+from simlab.viz.scene import build_scene
+from simlab.viz.view_model import compute_viewmodel
+from simlab.viz.components.graph import BaseEdges, Nodes
+from simlab.viz.components.overlays import RingOverlay, ActiveEdges
+from simlab.viz.components.ui import HUDText, LegendComponent
+from simlab.viz.components.interaction import HoverTooltip
 
 
-class LiveNetworkViz:
+class NetworkViz:
     def __init__(self, world: World, claim_id: int = 0, layout_seed: int = 0):
-        self.world = world
         self.claim_id = claim_id
         self.scene = build_scene(world, layout_seed=layout_seed)
 
@@ -76,11 +77,16 @@ class LiveNetworkViz:
             comp.add_to_canvas(self.ax, self.fig)
         self._initialized = True
 
-    def draw(self):
+    def draw(self, snapshot: Snapshot, telemetry_row: TelemetryRow | None = None):
         if not self._initialized:
             self._init_artists()
 
-        vm = compute_viewmodel(self.world, self.scene, claim_id=self.claim_id)
+        vm = compute_viewmodel(
+            self.scene,
+            claim_id=self.claim_id,
+            step_snapshot=snapshot,
+            telemetry_row=telemetry_row,
+        )
 
         for comp in self.components:
             comp.update(vm)
@@ -88,26 +94,48 @@ class LiveNetworkViz:
         self.fig.canvas.draw_idle()
 
 
-def run_live(
+def run_viz(
     world,
     steps: int = 500,
     claim_id: int = 0,
     draw_every: int = 1,
     layout_seed: int = 0,
     pause_time: float = 0.001,
+    telemetry: Telemetry | None = None,
+    log_every: int = 10,
 ):
     """
-    Simple live loop using plt.pause.
+    Simple visualization loop using plt.pause.
     """
-    viz = LiveNetworkViz(world, claim_id=claim_id, layout_seed=layout_seed)
+    if log_every <= 0:
+        raise ValueError("log_every must be >= 1")
+    if draw_every <= 0:
+        raise ValueError("draw_every must be >= 1")
+
+    viz = NetworkViz(world, claim_id=claim_id, layout_seed=layout_seed)
     plt.ion()
-    viz.draw()
     plt.show()
 
-    for _ in range(steps):
-        world.step(claim_id=claim_id)
-        if world.tick % draw_every == 0:
-            viz.draw()
+    # Create telemetry if not provided
+    if telemetry is None:
+        telemetry = Telemetry()
+    
+    # Record initial state and log
+    print(telemetry.record_initial(world).format_cli())
+
+    for i in range(steps):
+        start_time = time.perf_counter()
+        snapshot = world.step()
+        end_time = time.perf_counter()
+        step_runtime_ms = (end_time - start_time) * 1000
+
+        row = telemetry.record(snapshot, world, step_runtime_ms=step_runtime_ms)
+
+        if log_every and (i + 1) % log_every == 0:
+            print(row.format_cli())
+
+        if snapshot.tick % draw_every == 0:
+            viz.draw(snapshot=snapshot, telemetry_row=row)
             plt.pause(pause_time)
 
     plt.ioff()

@@ -1,5 +1,42 @@
 # Simulation Model Design
 
+## Table of Contents
+
+- [Simulation Model Design](#simulation-model-design)
+  - [Table of Contents](#table-of-contents)
+  - [Overview](#overview)
+  - [Core Concepts](#core-concepts)
+    - [Actions](#actions)
+    - [Memories](#memories)
+  - [State Representations](#state-representations)
+    - [Beliefs](#beliefs)
+    - [Trust](#trust)
+    - [Network](#network)
+  - [Information Channels](#information-channels)
+    - [1. Observation (`MemoryType.OBSERVE`)](#1-observation-memorytypeobserve)
+    - [2. Verification (`ActionType.VERIFY` -\> `MemoryType.VERIFY`)](#2-verification-actiontypeverify---memorytypeverify)
+    - [3. Hearing (`MemoryType.HEAR`)](#3-hearing-memorytypehear)
+  - [Agent Action Model](#agent-action-model)
+    - [Candidate Action Generation](#candidate-action-generation)
+    - [Action Scoring](#action-scoring)
+      - [Helper quantities](#helper-quantities)
+      - [Disagreement](#disagreement)
+      - [Current scoring rules](#current-scoring-rules)
+    - [Action Preferences and Costs](#action-preferences-and-costs)
+  - [Belief Update Rule](#belief-update-rule)
+    - [Memory Backlog](#memory-backlog)
+    - [Update Equation](#update-equation)
+    - [Effective Learning Rates](#effective-learning-rates)
+    - [Current Defaults](#current-defaults)
+  - [World Tick Semantics](#world-tick-semantics)
+    - [Observation Phase](#observation-phase)
+    - [Action Phase](#action-phase)
+    - [Update Phase](#update-phase)
+    - [Snapshot Phase](#snapshot-phase)
+  - [Telemetry and Measurement](#telemetry-and-measurement)
+  - [Current Model Behavior](#current-model-behavior)
+  - [Current Limitations](#current-limitations)
+
 ## Overview
 
 This document describes the current simulation kernel implemented in `sim.py`.
@@ -16,11 +53,13 @@ The current implementation provides a configurable simulation core for exploring
 
 ---
 
-## Core Entities
+## Core Concepts
 
-### `ActionType`
+### Actions
 
-`ActionType` defines the set of intentional actions an agent may choose:
+Actions represent intentional decisions available to agents during a tick.
+
+`ActionType` includes:
 
 - `IDLE`
 - `VERIFY`
@@ -29,19 +68,7 @@ The current implementation provides a configurable simulation core for exploring
 
 These are **decision-level constructs**. They represent what an agent is trying to do during a tick.
 
-### `MemoryType`
-
-`MemoryType` defines the set of epistemic inputs that can be stored in memory:
-
-- `OBSERVE`
-- `VERIFY`
-- `HEAR`
-
-These are **evidence-level constructs**. They represent the source/channel of information that may later affect beliefs.
-
-### `Action`
-
-An `Action` is a parameterized decision object containing:
+An `Action` contains:
 
 - `type: ActionType`
 - `claim_id: int | None`
@@ -49,9 +76,19 @@ An `Action` is a parameterized decision object containing:
 
 Validation is performed in `Action.__post_init__()` to ensure action arguments are well-formed.
 
-### `Memory`
+### Memories
 
-A `Memory` is a stored epistemic event containing:
+Memories represent epistemic inputs that may later affect beliefs.
+
+`MemoryType` includes:
+
+- `OBSERVE`
+- `VERIFY`
+- `HEAR`
+
+These are **evidence-level constructs**. They represent the source/channel of information that may later affect beliefs.
+
+A `Memory` contains:
 
 - `id`: index in the agent's memory list
 - `type`: `MemoryType`
@@ -62,7 +99,9 @@ A `Memory` is a stored epistemic event containing:
 
 ---
 
-## Belief Representation
+## State Representations
+
+### Beliefs
 
 Each agent stores a belief value for each claim:
 
@@ -80,9 +119,7 @@ Unseen claims default to a random value in `[0, 1]` using the agent's private RN
 
 This produces heterogeneous initial beliefs without requiring explicit initialization logic.
 
----
-
-## Trust Representation
+### Trust
 
 Each agent maintains a trust value for other agents:
 
@@ -94,9 +131,7 @@ Trust defaults to `0.5` for any unseen other agent.
 
 Trust currently affects only social hearing (`MemoryType.HEAR`) during belief updates. In the current model, trust controls how much weight a socially received memory has in the learning rule.
 
----
-
-## Network Representation
+### Network
 
 The world maintains a directed social graph:
 
@@ -295,7 +330,7 @@ This separation is a core design choice. It is also loosely inspired by real mod
 
 In this model, memories play that role: they are the agent’s internal record of what was experienced, heard, or verified, and belief updates operate over those stored representations rather than directly over the world.
 
-### Memory backlog
+### Memory Backlog
 
 Each agent tracks a memory cursor:
 
@@ -305,7 +340,7 @@ self._mem_cursor
 
 This indicates the first unprocessed memory.
 
-### Update equation
+### Update Equation
 
 For a memory with evidence `e`, claim belief `b`, and effective learning rate `lr`:
 
@@ -315,7 +350,7 @@ b_new = b + lr * (e - b)
 
 This is an exponential-moving-average style update toward the new evidence.
 
-### Effective learning rates
+### Effective Learning Rates
 
 Effective learning rate depends on memory type:
 
@@ -325,7 +360,7 @@ Effective learning rate depends on memory type:
 
 Then clamped to `[0, 1]`.
 
-### Current defaults
+### Current Defaults
 
 ```python
 eta = 0.1
@@ -345,16 +380,14 @@ Interpretation:
 
 A single tick of `World.step()` currently proceeds as follows:
 
-1. snapshot current beliefs for logging
-2. initialize `last_step`
-3. deliver passive observations (`deliver_observation`)
-4. let each agent choose and execute an intentional action
-5. update beliefs for all agents with pending memories
-6. snapshot resulting beliefs
-7. advance `tick`
-8. optionally log metrics
+1. deliver passive observations (`deliver_observation`)
+2. let each agent choose and execute an intentional action
+3. update beliefs for all agents with pending memories
+4. snapshot full beliefs for all agents and claims
+5. advance `tick`
+6. return `Snapshot`
 
-### Observation phase
+### Observation Phase
 
 The world may passively expose agents to observations. Current prototype behavior uses a fixed per-agent observation probability:
 
@@ -365,7 +398,7 @@ if self.rng.random() < 0.1:
 
 This is intentionally simple and should later become configurable.
 
-### Action phase
+### Action Phase
 
 Each agent selects one action via:
 
@@ -379,9 +412,42 @@ and executes it via:
 act(world, action)
 ```
 
-### Update phase
+### Update Phase
 
 After all new memories for the tick have been created, each agent processes any pending memories. This means all epistemic inputs for the tick are accumulated before belief updating occurs.
+
+### Snapshot Phase
+
+After beliefs are updated, the world produces a `Snapshot` containing:
+
+- the processed tick
+- observed agent IDs
+- verified agent IDs
+- communication edges
+- broadcast edges
+- full belief state for all agents and claims
+- agent memory sizes
+- number of agent belief updates
+
+This snapshot is used by visualization and telemetry, but it does not affect simulation behavior.
+
+## Telemetry and Measurement
+
+Telemetry is not part of the agent decision model. It does not affect agent behavior, memory formation, belief updates, or world dynamics.
+
+After each call to `World.step()`, the returned `Snapshot` can be passed to `Telemetry`, which computes compact per-step metrics for analysis and experiment tracking.
+
+Current telemetry focuses on:
+
+- global belief distribution across all agents and claims
+- belief movement between consecutive snapshots
+- truth alignment against the world's known claims
+- event counts for observations, verifications, communications, and broadcasts
+- step runtime, when measured by the caller
+
+The simulation kernel remains responsible for producing state transitions. Telemetry is responsible for measuring those transitions.
+
+This separation is intentional: future experiments can compare scheduling strategies, delayed updates, budget constraints, or model-in-the-loop policies without changing the core belief update semantics.
 
 ---
 
@@ -419,5 +485,7 @@ Not yet modeled:
 - heterogeneous world event processes
 - memory decay or forgetting
 - action budgets / cooldowns / fatigue
+- telemetry is currently global rather than per-claim or per-agent
+- no explicit runtime constraints such as latency, compute budgets, or scheduling policies
 
 These are candidate future extensions, but were deferred in favor of stabilizing the current abstraction layer.

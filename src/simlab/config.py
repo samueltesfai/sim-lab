@@ -1,6 +1,6 @@
 from omegaconf import OmegaConf
 import os
-from sim import World, Agent, ActionType, MemoryType
+from simlab.sim import World, Agent, ActionType, MemoryType
 
 
 def load_config(path: str) -> OmegaConf:
