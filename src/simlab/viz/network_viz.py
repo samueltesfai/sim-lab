@@ -77,7 +77,7 @@ class NetworkViz:
             comp.add_to_canvas(self.ax, self.fig)
         self._initialized = True
 
-    def draw(self, snapshot: Snapshot | None = None, telemetry_row: TelemetryRow | None = None):
+    def draw(self, snapshot: Snapshot, telemetry_row: TelemetryRow | None = None):
         if not self._initialized:
             self._init_artists()
 
