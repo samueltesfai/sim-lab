@@ -16,7 +16,10 @@ class Scene:
     nodes: list[int]
     degrees: dict[int, int]
     sizes_base: np.ndarray
-    truths: dict[int, bool]  # Pointer to world.truths; implies mutability during sim if new truth generation is enabled
+    truths: dict[
+        int, bool
+    ]  # Pointer to world.truths; implies mutability during sim if new truth generation is enabled
+
 
 def build_scene(world: World, layout_seed: int = 0) -> Scene:
     G = nx.DiGraph()

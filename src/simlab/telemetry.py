@@ -96,6 +96,7 @@ class TelemetryRow:
             f"{runtime_str}"
         )
 
+
 class Telemetry:
     def __init__(self, *, keep_history: bool = True, max_history: int | None = None):
         if max_history is not None and max_history < 1:
@@ -191,7 +192,7 @@ class Telemetry:
             return 0.0, 0.0
         n = len(deltas)
         return (sum(deltas) / n, max(deltas))
-    
+
     def record_initial(self, world: World, *, tick: int = -1) -> TelemetryRow:
         """
         Record the initial world state before any simulation steps are processed.
@@ -361,4 +362,3 @@ class Telemetry:
         with open(path, "w", encoding="utf-8") as f:
             for r in self.history:
                 f.write(json.dumps(r.to_dict(), ensure_ascii=False) + "\n")
-

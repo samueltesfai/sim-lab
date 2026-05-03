@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from simlab.viz.scene import Scene
-from simlab.sim import World, Snapshot
+from simlab.sim import Snapshot
 from simlab.telemetry import TelemetryRow
 
 
@@ -41,7 +41,7 @@ def compute_viewmodel(
     communicate_edges = step_snapshot.communicate_edges
     broadcast_edges = step_snapshot.broadcast_edges
     agent_memory_sizes = step_snapshot.agent_memory_sizes
-    agent_claim_beliefs = { 
+    agent_claim_beliefs = {
         # agent_id -> belief_value for the given claim
         agent_id: claim_beliefs.get(claim_id, 0.0)
         for agent_id, claim_beliefs in agent_beliefs.items()
