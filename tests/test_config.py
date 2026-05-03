@@ -1,7 +1,7 @@
 import pytest
 import tempfile
 import os
-from omegaconf import OmegaConf
+from omegaconf import OmegaConf, DictConfig
 
 from simlab.config import (
     load_config,
@@ -10,7 +10,7 @@ from simlab.config import (
     convert_noise_strings,
     build_world,
 )
-from simlab.sim import ActionType, MemoryType
+from simlab.sim import ActionType, MemoryType, Snapshot
 
 
 def create_test_config_file(config_dict: dict) -> str:
@@ -51,8 +51,6 @@ def test_load_config_success():
     try:
         cfg = load_config(config_path)
         # load_config returns a DictConfig
-        from omegaconf import DictConfig
-
         assert isinstance(cfg, DictConfig)
 
         # Test accessing the config as OmegaConf/DictConfig
@@ -525,8 +523,6 @@ def test_build_world_integration():
     snapshot = world.step()
 
     assert world.tick == initial_tick + 1
-    from simlab.sim import Snapshot
-
     assert isinstance(snapshot, Snapshot)
 
     # Test that agents have expected behavior

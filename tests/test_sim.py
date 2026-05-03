@@ -1,5 +1,7 @@
 import pytest
 import random
+import sys
+import io
 from collections import defaultdict
 
 from simlab.sim import (
@@ -606,9 +608,6 @@ def test_world_step_does_not_print_logs():
     world = _build_world(3)
 
     # Capture stdout
-    import sys
-    import io
-
     old_stdout = sys.stdout
     sys.stdout = io.StringIO()
 
