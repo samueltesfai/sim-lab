@@ -525,7 +525,9 @@ def test_build_world_integration():
     snapshot = world.step()
 
     assert world.tick == initial_tick + 1
-    assert isinstance(snapshot, object)  # Should be a Snapshot
+    from simlab.sim import Snapshot
+
+    assert isinstance(snapshot, Snapshot)
 
     # Test that agents have expected behavior
     agent = world.agents[0]
