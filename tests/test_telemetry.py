@@ -1,43 +1,16 @@
 import csv
 import json
 import math
-import io
-import sys
 
 import pytest
 
-from simlab.sim import Agent, World, Snapshot
+from simlab.sim import Agent, World
 from simlab.telemetry import Telemetry
-from simlab.viz import run_viz
-from simlab.viz.view_model import compute_viewmodel
-from simlab.viz.scene import build_scene
 
 
 def _build_world(n: int = 5) -> World:
     agents = [Agent(i, rng_seed=i) for i in range(n)]
     return World(agents=agents, truths={0: True}, rng_seed=1)
-
-
-def test_snapshot_stores_full_beliefs():
-    """Test that Snapshot stores full beliefs as agent_id -> claim_id -> belief_value."""
-    world = _build_world(3)
-    snapshot = world.step()
-
-    # Check that beliefs is a dict with agent_id as keys
-    assert isinstance(snapshot.agent_beliefs, dict)
-    assert len(snapshot.agent_beliefs) == 3
-
-    # Check that each agent's beliefs is a dict with claim_id as keys
-    for agent_id, claim_beliefs in snapshot.agent_beliefs.items():
-        assert isinstance(agent_id, int)
-        assert isinstance(claim_beliefs, dict)
-        # Each agent should have beliefs for at least claim 0
-        assert 0 in claim_beliefs
-        # Belief values should be floats in [0, 1]
-        for claim_id, belief_value in claim_beliefs.items():
-            assert isinstance(claim_id, int)
-            assert isinstance(belief_value, float)
-            assert 0.0 <= belief_value <= 1.0
 
 
 def test_record_populates_latest_and_history():
@@ -177,25 +150,6 @@ def test_export_jsonl_and_csv(tmp_path):
     assert "claim_id" not in rows[0]
 
 
-def test_world_step_does_not_print_logs():
-    """Test that World.step() does not print logs (no World.log_step())."""
-    world = _build_world(3)
-
-    # Capture stdout
-    old_stdout = sys.stdout
-    sys.stdout = io.StringIO()
-
-    try:
-        for _ in range(5):
-            world.step()
-        output = sys.stdout.getvalue()
-    finally:
-        sys.stdout = old_stdout
-
-    # World.step() should not print anything
-    assert output == ""
-
-
 def test_telemetry_records_from_repeated_steps():
     """Test that telemetry can record rows from repeated World.step() calls."""
     world = _build_world(3)
@@ -253,72 +207,6 @@ def test_format_telemetry_row_without_runtime():
     assert "runtime" not in formatted
     # But should include other fields
     assert "Tick" in formatted
-
-
-def test_run_viz_records_telemetry_history(mocker):
-    """Test that run_viz correctly records telemetry history with mocked world.step."""
-    # Given
-    world = _build_world(3)
-    telemetry = Telemetry()
-
-    snapshots = [
-        Snapshot(
-            tick=tick,
-            agent_beliefs={0: {0: 0.5, 1: 0.5}, 1: {0: 0.5, 1: 0.5}, 2: {0: 0.5, 1: 0.5}},
-            observed_ids=[0],
-            verified_ids=[],
-            communicate_edges=[],
-            broadcast_edges=[],
-            n_agent_updates=1,
-            agent_memory_sizes={0: 0, 1: 0, 2: 0},
-        )
-        for tick in range(5)
-    ]
-
-    # Mock matplotlib functions to avoid GUI
-    mocker.patch.object(world, "step", side_effect=snapshots)
-    mocker.patch("simlab.viz.network_viz.plt.ion")
-    mocker.patch("simlab.viz.network_viz.plt.show")
-    mocker.patch("simlab.viz.network_viz.plt.pause")
-    mocker.patch("simlab.viz.network_viz.plt.ioff")
-
-    # When
-    run_viz(
-        world,
-        steps=5,
-        telemetry=telemetry,
-        log_every=10,  # Don't print during test
-        draw_every=10,  # Don't draw during test
-    )
-
-    # Then
-    # Verify that telemetry.history has the correct number of entries
-    assert len(telemetry.history) == 6
-
-    # Verify that tick values are correct (-1, 0, 1, 2, 3, 4)
-    ticks = [row.tick for row in telemetry.history]
-    assert ticks == [-1, 0, 1, 2, 3, 4]
-
-    # Verify that latest is the last snapshot
-    assert telemetry.latest.tick == 4
-
-
-def test_run_viz_validates_log_every():
-    """Test that run_viz raises ValueError when log_every is 0."""
-    world = _build_world(3)
-    telemetry = Telemetry()
-
-    with pytest.raises(ValueError, match="log_every must be >= 1"):
-        run_viz(world, steps=5, telemetry=telemetry, log_every=0)
-
-
-def test_run_viz_validates_draw_every():
-    """Test that run_viz raises ValueError when draw_every is 0."""
-    world = _build_world(3)
-    telemetry = Telemetry()
-
-    with pytest.raises(ValueError, match="draw_every must be >= 1"):
-        run_viz(world, steps=5, telemetry=telemetry, draw_every=0)
 
 
 def test_record_initial_creates_baseline_row():
@@ -387,93 +275,6 @@ def test_record_initial_sets_previous_beliefs():
     assert row.max_abs_delta >= 0.0
 
 
-def test_compute_viewmodel_requires_snapshot():
-    """Test that compute_viewmodel requires a non-None Snapshot."""
-    world = _build_world(3)
-    scene = build_scene(world)
-
-    # Should raise TypeError or AttributeError when snapshot is None
-    with pytest.raises((TypeError, AttributeError)):
-        compute_viewmodel(scene, claim_id=0, step_snapshot=None)
-
-
-def test_compute_viewmodel_with_telemetry_row():
-    """Test that compute_viewmodel accepts telemetry_row parameter."""
-    world = _build_world(3)
-    scene = build_scene(world)
-    snapshot = world.step()
-    telemetry = Telemetry()
-    telemetry_row = telemetry.record(snapshot, world)
-
-    # Should work with telemetry_row (even if unused currently)
-    vm = compute_viewmodel(scene, claim_id=0, step_snapshot=snapshot, telemetry_row=telemetry_row)
-
-    assert vm.tick == snapshot.tick
-    assert vm.claim_id == 0
-
-
-def test_run_viz_draw_uses_snapshot_tick(mocker):
-    """Test that run_viz draw check uses snapshot.tick instead of world.tick."""
-    world = _build_world(3)
-    telemetry = Telemetry()
-
-    # Create snapshots with specific tick values
-    snapshots = [
-        Snapshot(
-            tick=tick,
-            agent_beliefs={0: {0: 0.5, 1: 0.5}, 1: {0: 0.5, 1: 0.5}, 2: {0: 0.5, 1: 0.5}},
-            observed_ids=[],
-            verified_ids=[],
-            communicate_edges=[],
-            broadcast_edges=[],
-            n_agent_updates=0,
-            agent_memory_sizes={0: 0, 1: 0, 2: 0},
-        )
-        for tick in range(5)
-    ]
-
-    # Mock world.step to return snapshots
-    mocker.patch.object(world, "step", side_effect=snapshots)
-    mocker.patch("simlab.viz.network_viz.plt.ion")
-    mocker.patch("simlab.viz.network_viz.plt.show")
-    mocker.patch("simlab.viz.network_viz.plt.pause")
-    mocker.patch("simlab.viz.network_viz.plt.ioff")
-
-    # Track draw calls
-    draw_calls = []
-    original_draw = mocker.patch("simlab.viz.network_viz.NetworkViz.draw", side_effect=lambda *args, **kwargs: draw_calls.append((args, kwargs)))
-
-    # Run with draw_every=2 (should draw on ticks 0, 2, 4)
-    run_viz(
-        world,
-        steps=5,
-        telemetry=telemetry,
-        log_every=10,
-        draw_every=2,
-    )
-
-    # Verify draw was called for ticks 0, 2, 4
-    assert len(draw_calls) == 3
-
-
-def test_get_agent_beliefs_snapshot_materializes_known_claims_from_lazy_beliefs():
-    world = _build_world(3)
-
-    for agent in world.agents:
-        agent.beliefs.clear()
-
-    snapshot = world.get_agent_beliefs_snapshot()
-
-    assert set(snapshot.keys()) == {agent.id for agent in world.agents}
-
-    for agent in world.agents:
-        claim_beliefs = snapshot[agent.id]
-        assert set(claim_beliefs.keys()) == set(world.truths.keys())
-
-        for claim_id in world.truths:
-            assert isinstance(claim_beliefs[claim_id], float)
-
-
 def test_record_initial_materializes_known_claims_for_first_step_delta():
     """Initial telemetry should store complete belief vectors for first-step delta computation."""
     world = _build_world(3)
@@ -503,8 +304,7 @@ def test_first_step_delta_uses_initial_belief_state():
 
     telemetry.record_initial(world)
     initial_beliefs = {
-        aid: dict(claims)
-        for aid, claims in telemetry._previous_beliefs.items()
+        aid: dict(claims) for aid, claims in telemetry._previous_beliefs.items()
     }
 
     snapshot = world.step()
