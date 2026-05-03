@@ -20,3 +20,7 @@ agent:
     VERIFY: 0.35
     COMMUNICATE: 0.15
     BROADCAST: 0.30
+
+system:
+  scheduler: SEQUENTIAL
+  max_actions_per_tick: null
