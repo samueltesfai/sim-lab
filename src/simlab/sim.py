@@ -9,6 +9,12 @@ def clamp(value, min_value=0.0, max_value=1.0):
     return max(min_value, min(value, max_value))
 
 
+class SchedulerType(Enum):
+    SEQUENTIAL = "sequential"
+    RANDOM = "random"
+    HIGHEST_DEGREE = "highest_degree"
+
+
 class ActionType(Enum):
     IDLE = "idle"
     VERIFY = "verify"
@@ -472,6 +478,8 @@ class World:
         rng_seed: int = 0,
         noise: dict[MemoryType, float] | None = None,
         observation_probability: float = 0.1,
+        scheduler: SchedulerType = SchedulerType.SEQUENTIAL,
+        max_actions_per_tick: int | None = None,
     ):
         self._agents = {a.id: a for a in agents}
         self.tick = 0
@@ -483,6 +491,8 @@ class World:
         } | (noise or {})
         self.truths = truths
         self.observation_probability = observation_probability
+        self.scheduler = scheduler
+        self.max_actions_per_tick = max_actions_per_tick
         self.network = self._generate_dummy_network(
             # TODO: We can implement a more complex network generation mechanism here,
             # potentially based on real-world social network structures or using a
@@ -598,6 +608,31 @@ class World:
                 claim_id=claim_id,
             )
 
+    def select_agents_for_action(self) -> list[Agent]:
+        match self.scheduler:
+            case SchedulerType.SEQUENTIAL:
+                selected = self.agents
+
+            case SchedulerType.RANDOM:
+                k = (
+                    len(self.agents)
+                    if self.max_actions_per_tick is None
+                    else min(self.max_actions_per_tick, len(self.agents))
+                )
+                selected = self.rng.sample(self.agents, k=k)
+
+            case SchedulerType.HIGHEST_DEGREE:
+                selected = sorted(
+                    self.agents,
+                    key=lambda agent: len(self.network[agent.id]),
+                    reverse=True,
+                )
+
+            case _:
+                raise ValueError(f"Unknown scheduler type: {self.scheduler}")
+
+        return selected[: self.max_actions_per_tick]
+
     def step(self) -> Snapshot:
         """
         Advance the simulation by one tick, allowing each agent to perform their
@@ -615,7 +650,7 @@ class World:
         broadcast_edges: list[tuple[int, int]] = []
         agent_updates = 0
 
-        for agent in self.agents:
+        for agent in self.select_agents_for_action():
             action = agent.choose_action(self)
             agent.act(self, action)
 

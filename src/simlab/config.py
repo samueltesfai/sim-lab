@@ -1,6 +1,6 @@
 from omegaconf import OmegaConf
 import os
-from simlab.sim import World, Agent, ActionType, MemoryType
+from simlab.sim import World, Agent, ActionType, MemoryType, SchedulerType
 
 
 def load_config(path: str) -> OmegaConf:
@@ -77,12 +77,19 @@ def convert_noise_strings(cfg: OmegaConf) -> OmegaConf:
     return cfg
 
 
+def convert_scheduler_string(cfg: OmegaConf) -> OmegaConf:
+    """Convert scheduler string to SchedulerType enum."""
+    cfg.system.scheduler = SchedulerType[cfg.system.scheduler.upper()]
+    return cfg
+
+
 def build_world(cfg: OmegaConf):
     """Build a World instance from configuration."""
 
     # Convert string keys to enums
     cfg = convert_action_strings(cfg)
     cfg = convert_noise_strings(cfg)
+    cfg = convert_scheduler_string(cfg)
 
     # Convert OmegaConf DictConfig to regular dicts for constructors
     action_preference = dict(cfg.agent.action_preference)
@@ -109,6 +116,8 @@ def build_world(cfg: OmegaConf):
         rng_seed=cfg.world.rng_seed,
         noise=noise,
         observation_probability=cfg.world.observation_probability,
+        scheduler=cfg.system.scheduler,
+        max_actions_per_tick=cfg.system.max_actions_per_tick,
     )
 
     return world
