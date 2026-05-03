@@ -1,5 +1,4 @@
 import argparse
-import time
 
 from simlab.viz import run_viz
 from simlab.config import load_config, build_world

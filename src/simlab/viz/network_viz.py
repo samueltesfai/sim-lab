@@ -119,7 +119,7 @@ def run_viz(
     # Create telemetry if not provided
     if telemetry is None:
         telemetry = Telemetry()
-    
+
     # Record initial state and log
     print(telemetry.record_initial(world).format_cli())
 
