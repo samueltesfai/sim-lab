@@ -2,7 +2,6 @@ from dataclasses import dataclass
 from collections import defaultdict
 from enum import Enum
 import random
-import math
 
 
 def clamp(value, min_value=0.0, max_value=1.0):
@@ -63,8 +62,12 @@ class Snapshot:
     tick: int  # Current simulation tick
     observed_ids: list[int]  # List of agent IDs that observed a claim this tick
     verified_ids: list[int]  # List of agent IDs that verified a claim this tick
-    communicate_edges: list[tuple[int, int]]  # List of (source, target) agent pairs that communicated this tick
-    broadcast_edges: list[tuple[int, int]]  # List of (source, target) agent pairs that broadcasted this tick
+    communicate_edges: list[
+        tuple[int, int]
+    ]  # List of (source, target) agent pairs that communicated this tick
+    broadcast_edges: list[
+        tuple[int, int]
+    ]  # List of (source, target) agent pairs that broadcasted this tick
     n_agent_updates: int  # Number of agents that updated this tick
     agent_beliefs: dict[int, dict[int, float]]  # {agent_id: {claim_id: belief}}
     agent_memory_sizes: dict[int, int]  # {agent_id: memory_size}
@@ -512,7 +515,7 @@ class World:
     @property
     def edges(self) -> list[tuple[int, int]]:
         return [(src, dest) for src, nei in self.network.items() for dest in nei]
-    
+
     def get_agent_beliefs_snapshot(self) -> dict[int, dict[int, float]]:
         """
         Return a complete belief snapshot for all agents and all known claims.
@@ -524,13 +527,9 @@ class World:
         claim_ids = list(self.truths.keys())
 
         return {
-            agent.id: {
-                claim_id: agent.beliefs[claim_id]
-                for claim_id in claim_ids
-            }
+            agent.id: {claim_id: agent.beliefs[claim_id] for claim_id in claim_ids}
             for agent in self.agents
         }
-
 
     def get_agent(self, agent_id: int) -> Agent:
         return self._agents[agent_id]

@@ -23,15 +23,17 @@ The kernel supports:
 
 - Configurable world and agent parameters through YAML config files
 - Dynamic belief updates based on memory and evidence
-- Per-step snapshots capturing full belief state and event data
+- Per-step snapshots capturing full agent belief state, memory sizes, and event data
 
 ### 2. **Telemetry System**
 The telemetry system tracks simulation metrics across all agents and claims:
 
 - Global belief statistics (mean, std, min, max)
+- Truth-alignment metrics against known world claims
 - Belief change deltas between steps
 - Event counts (observations, verifications, communications, broadcasts)
 - Step runtime measurement
+- Initial baseline recording before the first simulation step
 - Export to CSV and JSONL formats
 
 ### 3. **Visualization System**
@@ -94,6 +96,12 @@ Export telemetry after the run:
 ```bash
 uv run python -m simlab --export-telemetry-csv output.csv
 uv run python -m simlab --export-telemetry-jsonl output.jsonl
+```
+
+### 4. Run Tests
+
+```bash
+uv run pytest
 ```
 
 ---
