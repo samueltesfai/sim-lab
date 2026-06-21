@@ -124,6 +124,11 @@ def run_viz(
     print(telemetry.record_initial(world).format_cli())
 
     for i in range(steps):
+        # Check if matplotlib window is still open
+        if not plt.fignum_exists(viz.fig.number):
+            print("\nVisualization window closed - stopping simulation")
+            break
+
         start_time = time.perf_counter()
         snapshot = world.step()
         end_time = time.perf_counter()
