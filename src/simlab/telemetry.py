@@ -80,8 +80,10 @@ class TelemetryRow:
             else ""
         )
 
+        tick_label = "Initial" if self.tick < 0 else f"Tick {self.tick:4d}"
+
         return (
-            f"Tick {self.tick:4d} | "
+            f"{tick_label} | "
             f"belief mean={self.belief_mean:.3f} std={self.belief_std:.3f} "
             f"min={self.belief_min:.3f} max={self.belief_max:.3f} | "
             f"Δabs_mean={self.mean_abs_delta:.4f} Δmax={self.max_abs_delta:.4f} | "
