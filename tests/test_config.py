@@ -8,6 +8,7 @@ from simlab.config import (
     validate_config,
     convert_action_strings,
     convert_noise_strings,
+    expand_agent_specs,
     build_world,
 )
 from simlab.sim import ActionType, MemoryType, Snapshot
@@ -26,7 +27,7 @@ def test_load_config_success():
         "world": {
             "num_agents": 5,
             "rng_seed": 42,
-            "observation_probability": 0.1,
+            "observation": {"individual_event_rate": 0.1},
             "truths": {0: True, 1: False},
             "noise": {"OBSERVE": 0.0, "HEAR": 0.1, "VERIFY": 0.05},
         },
@@ -56,7 +57,7 @@ def test_load_config_success():
         # Test accessing the config as OmegaConf/DictConfig
         assert cfg.world.num_agents == 5
         assert cfg.world.rng_seed == 42
-        assert cfg.world.observation_probability == 0.1
+        assert cfg.world.observation.individual_event_rate == 0.1
         assert cfg.world.truths == {0: True, 1: False}
         assert cfg.agent.action_preference.IDLE == 0.0
         assert cfg.agent.action_preference.VERIFY == 0.9
@@ -75,7 +76,7 @@ def test_validate_config_success():
     config_dict = {
         "world": {
             "num_agents": 3,
-            "observation_probability": 0.2,
+            "observation": {"individual_event_rate": 0.2},
             "truths": {0: True, 1: False},
             "noise": {"OBSERVE": 0.0, "HEAR": 0.1, "VERIFY": 0.05},
         },
@@ -106,7 +107,7 @@ def test_validate_config_invalid_num_agents():
     config_dict = {
         "world": {
             "num_agents": 0,  # Invalid: must be > 0
-            "observation_probability": 0.2,
+            "observation": {"individual_event_rate": 0.2},
             "truths": {0: True},
             "noise": {"OBSERVE": 0.0, "HEAR": 0.1, "VERIFY": 0.05},
         },
@@ -132,12 +133,12 @@ def test_validate_config_invalid_num_agents():
         validate_config(cfg)
 
 
-def test_validate_config_invalid_observation_probability():
-    """Test config validation with invalid observation_probability."""
+def test_validate_config_invalid_observation_rate():
+    """Test config validation with invalid observation event rate."""
     config_dict = {
         "world": {
             "num_agents": 3,
-            "observation_probability": 1.5,  # Invalid: must be in [0, 1]
+            "observation": {"individual_event_rate": 1.5},  # Invalid: must be in [0, 1]
             "truths": {0: True},
             "noise": {"OBSERVE": 0.0, "HEAR": 0.1, "VERIFY": 0.05},
         },
@@ -160,7 +161,8 @@ def test_validate_config_invalid_observation_probability():
     cfg = OmegaConf.create(config_dict)
 
     with pytest.raises(
-        ValueError, match="world.observation_probability must be in \\[0, 1\\]"
+        ValueError,
+        match="world.observation.individual_event_rate must be in \\[0, 1\\]",
     ):
         validate_config(cfg)
 
@@ -170,7 +172,7 @@ def test_validate_config_negative_noise():
     config_dict = {
         "world": {
             "num_agents": 3,
-            "observation_probability": 0.2,
+            "observation": {"individual_event_rate": 0.2},
             "truths": {0: True},
             "noise": {
                 "OBSERVE": -0.1,
@@ -205,7 +207,7 @@ def test_validate_config_invalid_action_preference():
     config_dict = {
         "world": {
             "num_agents": 3,
-            "observation_probability": 0.2,
+            "observation": {"individual_event_rate": 0.2},
             "truths": {0: True},
             "noise": {"OBSERVE": 0.0, "HEAR": 0.1, "VERIFY": 0.05},
         },
@@ -238,7 +240,7 @@ def test_validate_config_invalid_action_name():
     config_dict = {
         "world": {
             "num_agents": 3,
-            "observation_probability": 0.2,
+            "observation": {"individual_event_rate": 0.2},
             "truths": {0: True},
             "noise": {"OBSERVE": 0.0, "HEAR": 0.1, "VERIFY": 0.05},
         },
@@ -269,7 +271,7 @@ def test_validate_config_negative_action_cost():
     config_dict = {
         "world": {
             "num_agents": 3,
-            "observation_probability": 0.2,
+            "observation": {"individual_event_rate": 0.2},
             "truths": {0: True},
             "noise": {"OBSERVE": 0.0, "HEAR": 0.1, "VERIFY": 0.05},
         },
@@ -302,7 +304,7 @@ def test_validate_config_invalid_truths():
     config_dict = {
         "world": {
             "num_agents": 3,
-            "observation_probability": 0.2,
+            "observation": {"individual_event_rate": 0.2},
             "truths": {0: "not_boolean", 1: False},  # Invalid: not boolean
             "noise": {"OBSERVE": 0.0, "HEAR": 0.1, "VERIFY": 0.05},
         },
@@ -393,7 +395,7 @@ def test_build_world():
         "world": {
             "num_agents": 3,
             "rng_seed": 42,
-            "observation_probability": 0.2,
+            "observation": {"individual_event_rate": 0.2},
             "truths": {0: True, 1: False},
             "noise": {"OBSERVE": 0.1, "HEAR": 0.05, "VERIFY": 0.02},
         },
@@ -419,7 +421,7 @@ def test_build_world():
     # Check world properties
     assert len(world.agents) == 3
     # World doesn't store rng_seed as attribute
-    assert world.observation_probability == 0.2
+    assert world.individual_observation_event_rate == 0.2
     assert world.truths == {0: True, 1: False}
     assert world.noise[MemoryType.OBSERVE] == 0.1
     assert world.noise[MemoryType.HEAR] == 0.05
@@ -450,7 +452,7 @@ def test_build_world_partial_config():
         "world": {
             "num_agents": 2,
             "rng_seed": 10,
-            "observation_probability": 0.15,
+            "observation": {"individual_event_rate": 0.15},
             "truths": {0: True},
             "noise": {"OBSERVE": 0.05},  # Missing HEAR and VERIFY
         },
@@ -491,7 +493,9 @@ def test_build_world_integration():
         "world": {
             "num_agents": 3,
             "rng_seed": 123,
-            "observation_probability": 0.0,  # No random observations for deterministic test
+            "observation": {
+                "individual_event_rate": 0.0
+            },  # No random observations for deterministic test
             "truths": {0: True, 1: False},
             "noise": {
                 "OBSERVE": 0.0,
@@ -538,7 +542,7 @@ def test_load_config_and_build_world_integration():
         "world": {
             "num_agents": 2,
             "rng_seed": 999,
-            "observation_probability": 0.1,
+            "observation": {"individual_event_rate": 0.1},
             "truths": {0: True},
             "noise": {"OBSERVE": 0.0, "HEAR": 0.0, "VERIFY": 0.0},
         },
@@ -575,3 +579,121 @@ def test_load_config_and_build_world_integration():
 
     finally:
         os.unlink(config_path)
+
+
+def _flat_agent_config(num_agents: int = 3) -> dict:
+    return {
+        "world": {
+            "num_agents": num_agents,
+            "rng_seed": 0,
+            "observation": {"individual_event_rate": 0.1},
+            "truths": {0: True},
+            "noise": {"OBSERVE": 0.0, "HEAR": 0.0, "VERIFY": 0.0},
+        },
+        "agent": {
+            "action_preference": {
+                "IDLE": 0.0,
+                "VERIFY": 0.9,
+                "COMMUNICATE": 0.7,
+                "BROADCAST": 0.5,
+            },
+            "action_cost": {
+                "IDLE": 0.0,
+                "VERIFY": 0.35,
+                "COMMUNICATE": 0.15,
+                "BROADCAST": 0.30,
+            },
+        },
+    }
+
+
+def test_flat_config_builds_default_profile():
+    """Old flat agent config builds; all agents use the implicit 'default' profile."""
+    cfg = OmegaConf.create(_flat_agent_config(num_agents=4))
+    world = build_world(cfg)
+
+    assert len(world.agents) == 4
+    assert all(agent.profile_name == "default" for agent in world.agents)
+    assert world.profile_counts == {"default": 4}
+
+    # Cognition params should fall back to Agent defaults.
+    agent = world.agents[0]
+    assert agent.observation_attention == 1.0
+    assert agent.learning_rate == 0.1
+
+
+def test_profiles_expand_counts_and_params():
+    """Structured config expands profiles into the right counts and overrides."""
+    config_dict = {
+        "world": {
+            "num_agents": 50,
+            "rng_seed": 0,
+            "observation": {"individual_event_rate": 0.1},
+            "truths": {0: True},
+            "noise": {"OBSERVE": 0.1, "HEAR": 0.15, "VERIFY": 0.05},
+        },
+        "agent": {
+            "defaults": {
+                "observation": {"attention": 1.0, "bias": 0.0},
+                "trust": {"default": 0.5},
+                "learning": {"rate": 0.1, "hear_weight": 0.3},
+            },
+            "profiles": [
+                {"name": "attentive", "count": 20, "observation": {"attention": 0.95}},
+                {"name": "distracted", "count": 20, "observation": {"attention": 0.35}},
+                {
+                    "name": "skeptical",
+                    "count": 10,
+                    "trust": {"default": 0.25},
+                    "learning": {"hear_weight": 0.15},
+                },
+            ],
+        },
+    }
+
+    cfg = OmegaConf.create(config_dict)
+    world = build_world(cfg)
+
+    assert len(world.agents) == 50
+    assert world.profile_counts == {
+        "attentive": 20,
+        "distracted": 20,
+        "skeptical": 10,
+    }
+
+    by_profile = {a.profile_name: a for a in world.agents}
+    assert by_profile["attentive"].observation_attention == 0.95
+    assert by_profile["distracted"].observation_attention == 0.35
+    # Skeptical inherits default attention but overrides trust + hear_weight.
+    assert by_profile["skeptical"].observation_attention == 1.0
+    assert by_profile["skeptical"].default_trust == 0.25
+    assert by_profile["skeptical"].hear_weight == 0.15
+    # Non-overridden default propagates.
+    assert by_profile["attentive"].default_trust == 0.5
+
+
+def test_profiles_count_mismatch_raises():
+    """Profile counts that don't sum to num_agents fail validation."""
+    config_dict = _flat_agent_config()
+    config_dict["world"]["num_agents"] = 50
+    config_dict["agent"] = {
+        "defaults": {"observation": {"attention": 1.0}},
+        "profiles": [
+            {"name": "a", "count": 20},
+            {"name": "b", "count": 29},  # sums to 49, not 50
+        ],
+    }
+
+    cfg = OmegaConf.create(config_dict)
+    with pytest.raises(ValueError, match="counts must sum to world.num_agents"):
+        validate_config(cfg)
+
+
+def test_expand_agent_specs_flat_form():
+    """expand_agent_specs returns one spec per agent for the flat form."""
+    cfg = OmegaConf.create(_flat_agent_config(num_agents=3))
+    specs = expand_agent_specs(cfg)
+
+    assert len(specs) == 3
+    assert all(spec["profile_name"] == "default" for spec in specs)
+    assert all(ActionType.VERIFY in spec["action_preference"] for spec in specs)

@@ -12,6 +12,8 @@ from simlab.sim import (
     Snapshot,
     ActionType,
     MemoryType,
+    ObservationScope,
+    ObservationEvent,
     clamp,
 )
 
@@ -360,27 +362,32 @@ def test_agent_add_memory():
     agent = world.get_agent(0)
 
     # Test observation memory
-    agent.add_memory(world, MemoryType.OBSERVE, claim_id=0)
+    agent.add_memory(world, MemoryType.OBSERVE, claim_id=0, evidence=0.8)
     memory = agent.memory[-1]
     assert memory.type == MemoryType.OBSERVE
     assert memory.claim_id == 0
     assert memory.source is None
     assert memory.timestamp == world.tick
-    assert memory.evidence is not None
-    assert 0.0 <= memory.evidence <= 1.0
+    assert memory.evidence == 0.8
 
     # Test verify memory
-    agent.add_memory(world, MemoryType.VERIFY, claim_id=0)
+    agent.add_memory(world, MemoryType.VERIFY, claim_id=0, evidence=1.0)
     memory = agent.memory[-1]
     assert memory.type == MemoryType.VERIFY
     assert memory.claim_id == 0
 
     # Test hear memory
-    agent.add_memory(world, MemoryType.HEAR, source=1, claim_id=0)
+    agent.add_memory(world, MemoryType.HEAR, source=1, claim_id=0, evidence=0.4)
     memory = agent.memory[-1]
     assert memory.type == MemoryType.HEAR
     assert memory.source == 1
     assert memory.claim_id == 0
+
+    # Evidence-bearing memories require explicit claim_id and evidence
+    with pytest.raises(ValueError, match="requires evidence"):
+        agent.add_memory(world, MemoryType.OBSERVE, claim_id=0)
+    with pytest.raises(ValueError, match="requires claim_id"):
+        agent.add_memory(world, MemoryType.VERIFY, evidence=0.5)
 
 
 def test_agent_update_beliefs():
@@ -392,7 +399,7 @@ def test_agent_update_beliefs():
     agent.beliefs[0] = 0.5
 
     # Add memory with evidence
-    agent.add_memory(world, MemoryType.VERIFY, claim_id=0)
+    agent.add_memory(world, MemoryType.VERIFY, claim_id=0, evidence=1.0)
 
     # Update beliefs
     updated = agent.update_beliefs()
@@ -416,13 +423,13 @@ def test_world_initialization():
         truths={0: True, 1: False},
         rng_seed=42,
         noise={MemoryType.OBSERVE: 0.1, MemoryType.HEAR: 0.2},
-        observation_probability=0.3,
+        individual_observation_event_rate=0.3,
     )
 
     assert len(world.agents) == 3
     assert world.truths == {0: True, 1: False}
     assert world.tick == 0
-    assert world.observation_probability == 0.3
+    assert world.individual_observation_event_rate == 0.3
     assert world.noise[MemoryType.OBSERVE] == 0.1
     assert world.noise[MemoryType.HEAR] == 0.2
     assert world.noise[MemoryType.VERIFY] == 0.0  # Default
@@ -489,17 +496,28 @@ def test_world_get_agent_beliefs_snapshot():
             assert 0.0 <= belief_value <= 1.0
 
 
-def test_world_deliver_observation():
-    """Test World.deliver_observation method."""
+def test_world_observation_events():
+    """Test World observation event generation and delivery."""
     world = _build_world(3)
 
-    # Set observation probability to 1.0 for deterministic testing
-    world.observation_probability = 1.0
+    # Set rate to 1.0 so the world emits one event per agent (deterministic).
+    world.individual_observation_event_rate = 1.0
 
-    observed_agents = world.deliver_observation()
+    events = world.generate_observation_events()
+
+    assert isinstance(events, list)
+    assert len(events) == 3  # One individual event per agent
+    for event in events:
+        assert event.scope == ObservationScope.INDIVIDUAL
+        assert len(event.visible_agent_ids) == 1
+        assert event.claim_id in world.claims
+        assert 0.0 <= event.evidence <= 1.0
+
+    # With default attention 1.0, all visible agents should observe.
+    observed_agents = world.deliver_observation_events(events)
 
     assert isinstance(observed_agents, list)
-    assert len(observed_agents) == 3  # All agents should observe
+    assert sorted(observed_agents) == [0, 1, 2]
 
     # Agents should have received memories
     for agent_id in observed_agents:
@@ -638,3 +656,84 @@ def test_get_agent_beliefs_snapshot_materializes_known_claims_from_lazy_beliefs(
 
         for claim_id in world.truths:
             assert isinstance(claim_beliefs[claim_id], float)
+
+
+def test_attention_zero_forms_no_observation_memories():
+    """With attention 0, events are still emitted but no memories are formed."""
+    agents = [Agent(i, rng_seed=i, observation_attention=0.0) for i in range(5)]
+    world = World(
+        agents=agents,
+        truths={0: True},
+        rng_seed=1,
+        individual_observation_event_rate=1.0,
+    )
+
+    snapshot = world.step()
+
+    assert snapshot.observation_event_count >= 1
+    assert snapshot.observed_ids == []
+
+
+def test_attention_one_all_visible_agents_observe():
+    """With rate and attention at 1.0, every agent forms an observation memory."""
+    agents = [Agent(i, rng_seed=i, observation_attention=1.0) for i in range(5)]
+    world = World(
+        agents=agents,
+        truths={0: True},
+        rng_seed=1,
+        individual_observation_event_rate=1.0,
+    )
+
+    events = world.generate_observation_events()
+    observed = world.deliver_observation_events(events)
+
+    assert len(events) == 5
+    assert sorted(observed) == [0, 1, 2, 3, 4]
+
+
+def test_encode_observation_applies_bias():
+    """encode_observation shifts evidence by the agent's perceptual bias."""
+    world = _build_world(1)
+    agent = Agent(0, rng_seed=0, observation_bias=0.1)
+    event = ObservationEvent(
+        id=0,
+        tick=0,
+        claim_id=0,
+        evidence=0.5,
+        scope=ObservationScope.INDIVIDUAL,
+        visible_agent_ids=(0,),
+    )
+
+    assert agent.encode_observation(world, event) == pytest.approx(0.6)
+
+
+def test_learning_rate_heterogeneity_affects_update_magnitude():
+    """Higher learning rate moves belief farther toward the same evidence."""
+    world = _build_world(2)
+
+    slow = Agent(0, rng_seed=0, learning_rate=0.01)
+    fast = Agent(1, rng_seed=1, learning_rate=0.5)
+
+    for agent in (slow, fast):
+        agent.beliefs[0] = 0.5
+        agent.add_memory(world, MemoryType.OBSERVE, claim_id=0, evidence=1.0)
+        agent.update_beliefs()
+
+    # Both move toward 1.0; the faster learner moves farther.
+    assert fast.beliefs[0] > slow.beliefs[0]
+
+
+def test_default_trust_heterogeneity_affects_heard_update():
+    """Higher default trust gives heard evidence more weight."""
+    world = _build_world(3)
+
+    low = Agent(0, rng_seed=0, default_trust=0.1)
+    high = Agent(1, rng_seed=1, default_trust=0.9)
+
+    for agent in (low, high):
+        agent.beliefs[0] = 0.5
+        # source agent 2 is unseen, so trust falls back to default_trust
+        agent.add_memory(world, MemoryType.HEAR, source=2, claim_id=0, evidence=1.0)
+        agent.update_beliefs()
+
+    assert high.beliefs[0] > low.beliefs[0]

@@ -1,0 +1,57 @@
+world:
+  num_agents: 50
+  rng_seed: 0
+  observation:
+    individual_event_rate: 0.1
+  truths:
+    0: true
+  noise:
+    OBSERVE: 0.1
+    HEAR: 0.15
+    VERIFY: 0.05
+
+agent:
+  defaults:
+    observation:
+      attention: 1.0
+      bias: 0.0
+    trust:
+      default: 0.5
+    learning:
+      rate: 0.1
+      observe_weight: 0.6
+      hear_weight: 0.3
+      verify_weight: 1.0
+    action_preference:
+      IDLE: 0.0
+      VERIFY: 0.9
+      COMMUNICATE: 0.7
+      BROADCAST: 0.5
+    action_cost:
+      IDLE: 0.0
+      VERIFY: 0.35
+      COMMUNICATE: 0.15
+      BROADCAST: 0.30
+
+  profiles:
+    - name: attentive
+      count: 20
+      observation:
+        attention: 0.95
+
+    - name: distracted
+      count: 20
+      observation:
+        attention: 0.35
+
+    - name: skeptical
+      count: 10
+      trust:
+        default: 0.25
+      learning:
+        hear_weight: 0.15
+        verify_weight: 1.2
+      action_preference:
+        VERIFY: 1.0
+        COMMUNICATE: 0.35
+        BROADCAST: 0.2

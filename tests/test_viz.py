@@ -22,6 +22,7 @@ def _build_test_snapshot(world: World, tick: int = 0) -> Snapshot:
     """Helper to build a test snapshot."""
     return Snapshot(
         tick=tick,
+        observation_event_count=2,
         observed_ids=[0, 1],
         verified_ids=[2],
         communicate_edges=[(0, 1), (1, 2)],
@@ -180,6 +181,7 @@ def test_compute_viewmodel_stats():
 
     snapshot = Snapshot(
         tick=0,
+        observation_event_count=0,
         observed_ids=[],
         verified_ids=[],
         communicate_edges=[],
@@ -209,6 +211,7 @@ def test_compute_viewmodel_empty_beliefs():
 
     snapshot = Snapshot(
         tick=0,
+        observation_event_count=0,
         observed_ids=[],
         verified_ids=[],
         communicate_edges=[],
@@ -237,6 +240,7 @@ def test_compute_viewmodel_missing_claim():
 
     snapshot = Snapshot(
         tick=0,
+        observation_event_count=0,
         observed_ids=[],
         verified_ids=[],
         communicate_edges=[],
@@ -263,6 +267,7 @@ def test_compute_viewmodel_duplicate_edge_removal():
     # Create snapshot with duplicate edges
     snapshot = Snapshot(
         tick=0,
+        observation_event_count=0,
         observed_ids=[],
         verified_ids=[],
         communicate_edges=[(0, 1), (0, 1), (1, 2)],  # Duplicate (0,1)

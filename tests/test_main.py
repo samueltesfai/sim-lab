@@ -1,7 +1,7 @@
 import pytest
 import tempfile
 import os
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 from omegaconf import OmegaConf
 
 from simlab.main import main
@@ -20,7 +20,7 @@ def test_main_with_real_config_loading():
         "world": {
             "num_agents": 2,
             "rng_seed": 42,
-            "observation_probability": 0.0,  # No random observations
+            "observation": {"individual_event_rate": 0.0},  # No random observations
             "truths": {0: True},
             "noise": {"OBSERVE": 0.0, "HEAR": 0.0, "VERIFY": 0.0},
         },
@@ -72,7 +72,7 @@ def test_main_telemetry_export_integration():
         "world": {
             "num_agents": 1,
             "rng_seed": 123,
-            "observation_probability": 0.0,
+            "observation": {"individual_event_rate": 0.0},
             "truths": {0: True},
             "noise": {"OBSERVE": 0.0, "HEAR": 0.0, "VERIFY": 0.0},
         },
@@ -151,17 +151,21 @@ def test_main_telemetry_export_integration():
 @patch("simlab.main.load_config")
 def test_main_handles_run_viz_exceptions(mock_load_config, mock_run_viz):
     """Test that main properly handles exceptions from run_viz."""
-    mock_cfg = Mock()
-    mock_cfg.world.truths = {0: True}
-    # Make the mock iterable for convert_action_strings
-    mock_cfg.agent.action_preference.items.return_value = [("IDLE", 0.0)]
-    mock_cfg.agent.action_cost.items.return_value = [("IDLE", 0.0)]
-    mock_cfg.world.noise.items.return_value = [("OBSERVE", 0.0)]
-    # Add required attributes for build_world
-    mock_cfg.world.num_agents = 1
-    mock_cfg.world.rng_seed = 42
-    mock_cfg.world.observation_probability = 0.1
-    mock_cfg.world.truths = {0: True}
+    mock_cfg = OmegaConf.create(
+        {
+            "world": {
+                "num_agents": 1,
+                "rng_seed": 42,
+                "observation": {"individual_event_rate": 0.1},
+                "truths": {0: True},
+                "noise": {"OBSERVE": 0.0, "HEAR": 0.0, "VERIFY": 0.0},
+            },
+            "agent": {
+                "action_preference": {"IDLE": 0.0},
+                "action_cost": {"IDLE": 0.0},
+            },
+        }
+    )
     mock_load_config.return_value = mock_cfg
 
     # Test that exceptions from run_viz are propagated

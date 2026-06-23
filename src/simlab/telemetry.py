@@ -41,7 +41,12 @@ class TelemetryRow:
 
     # ---------------------------------------------------------------------
     # Event / action counts
+    #
+    # num_observation_events: passive observation events emitted by the world
+    # num_observations: observation memories actually formed by agents
+    #   (events filtered through per-agent attention)
     # ---------------------------------------------------------------------
+    num_observation_events: int
     num_observations: int
     num_verifications: int
     num_communicate_edges: int
@@ -65,6 +70,7 @@ class TelemetryRow:
             "mean_abs_error_to_truth": self.mean_abs_error_to_truth,
             "max_abs_error_to_truth": self.max_abs_error_to_truth,
             "fraction_truth_aligned": self.fraction_truth_aligned,
+            "num_observation_events": self.num_observation_events,
             "num_observations": self.num_observations,
             "num_verifications": self.num_verifications,
             "num_communicate_edges": self.num_communicate_edges,
@@ -92,6 +98,7 @@ class TelemetryRow:
             f"aligned={self.fraction_truth_aligned:.2%} | "
             f"events: com={self.num_communicate_edges} | "
             f"bcast={self.num_broadcast_edges} | "
+            f"obs_events={self.num_observation_events} | "
             f"obs={self.num_observations} | "
             f"ver={self.num_verifications} | "
             f"updates={self.num_agent_updates}"
@@ -251,6 +258,7 @@ class Telemetry:
             mean_abs_error_to_truth=mean_abs_error_to_truth,
             max_abs_error_to_truth=max_abs_error_to_truth,
             fraction_truth_aligned=fraction_truth_aligned,
+            num_observation_events=0,
             num_observations=0,
             num_verifications=0,
             num_communicate_edges=0,
@@ -329,6 +337,7 @@ class Telemetry:
             mean_abs_error_to_truth=mean_abs_error_to_truth,
             max_abs_error_to_truth=max_abs_error_to_truth,
             fraction_truth_aligned=fraction_truth_aligned,
+            num_observation_events=snapshot.observation_event_count,
             num_observations=len(snapshot.observed_ids),
             num_verifications=len(snapshot.verified_ids),
             num_communicate_edges=len(snapshot.communicate_edges),
