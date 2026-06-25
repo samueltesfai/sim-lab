@@ -6,7 +6,6 @@ from omegaconf import OmegaConf, DictConfig
 from simlab.config import (
     load_config,
     validate_config,
-    convert_action_strings,
     convert_noise_strings,
     expand_agent_specs,
     build_world,
@@ -25,25 +24,27 @@ def test_load_config_success():
     """Test successful config loading."""
     config_dict = {
         "world": {
-            "num_agents": 5,
             "rng_seed": 42,
             "observation": {"individual_event_rate": 0.1},
             "truths": {0: True, 1: False},
             "noise": {"OBSERVE": 0.0, "HEAR": 0.1, "VERIFY": 0.05},
         },
         "agent": {
-            "action_preference": {
-                "IDLE": 0.0,
-                "VERIFY": 0.9,
-                "COMMUNICATE": 0.7,
-                "BROADCAST": 0.5,
+            "defaults": {
+                "action_preference": {
+                    "IDLE": 0.0,
+                    "VERIFY": 0.9,
+                    "COMMUNICATE": 0.7,
+                    "BROADCAST": 0.5,
+                },
+                "action_cost": {
+                    "IDLE": 0.0,
+                    "VERIFY": 0.35,
+                    "COMMUNICATE": 0.15,
+                    "BROADCAST": 0.30,
+                },
             },
-            "action_cost": {
-                "IDLE": 0.0,
-                "VERIFY": 0.35,
-                "COMMUNICATE": 0.15,
-                "BROADCAST": 0.30,
-            },
+            "profiles": [{"name": "default", "count": 5}],
         },
     }
 
@@ -55,12 +56,12 @@ def test_load_config_success():
         assert isinstance(cfg, DictConfig)
 
         # Test accessing the config as OmegaConf/DictConfig
-        assert cfg.world.num_agents == 5
+        assert cfg.agent.profiles[0].count == 5
         assert cfg.world.rng_seed == 42
         assert cfg.world.observation.individual_event_rate == 0.1
         assert cfg.world.truths == {0: True, 1: False}
-        assert cfg.agent.action_preference.IDLE == 0.0
-        assert cfg.agent.action_preference.VERIFY == 0.9
+        assert cfg.agent.defaults.action_preference.IDLE == 0.0
+        assert cfg.agent.defaults.action_preference.VERIFY == 0.9
     finally:
         os.unlink(config_path)
 
@@ -75,24 +76,26 @@ def test_validate_config_success():
     """Test config validation with valid config."""
     config_dict = {
         "world": {
-            "num_agents": 3,
             "observation": {"individual_event_rate": 0.2},
             "truths": {0: True, 1: False},
             "noise": {"OBSERVE": 0.0, "HEAR": 0.1, "VERIFY": 0.05},
         },
         "agent": {
-            "action_preference": {
-                "IDLE": 0.0,
-                "VERIFY": 0.9,
-                "COMMUNICATE": 0.7,
-                "BROADCAST": 0.5,
+            "defaults": {
+                "action_preference": {
+                    "IDLE": 0.0,
+                    "VERIFY": 0.9,
+                    "COMMUNICATE": 0.7,
+                    "BROADCAST": 0.5,
+                },
+                "action_cost": {
+                    "IDLE": 0.0,
+                    "VERIFY": 0.35,
+                    "COMMUNICATE": 0.15,
+                    "BROADCAST": 0.30,
+                },
             },
-            "action_cost": {
-                "IDLE": 0.0,
-                "VERIFY": 0.35,
-                "COMMUNICATE": 0.15,
-                "BROADCAST": 0.30,
-            },
+            "profiles": [{"name": "default", "count": 3}],
         },
     }
 
@@ -102,34 +105,36 @@ def test_validate_config_success():
     validate_config(cfg)
 
 
-def test_validate_config_invalid_num_agents():
-    """Test config validation with invalid num_agents."""
+def test_validate_config_invalid_profile_count():
+    """Test config validation with a non-positive profile count."""
     config_dict = {
         "world": {
-            "num_agents": 0,  # Invalid: must be > 0
             "observation": {"individual_event_rate": 0.2},
             "truths": {0: True},
             "noise": {"OBSERVE": 0.0, "HEAR": 0.1, "VERIFY": 0.05},
         },
         "agent": {
-            "action_preference": {
-                "IDLE": 0.0,
-                "VERIFY": 0.9,
-                "COMMUNICATE": 0.7,
-                "BROADCAST": 0.5,
+            "defaults": {
+                "action_preference": {
+                    "IDLE": 0.0,
+                    "VERIFY": 0.9,
+                    "COMMUNICATE": 0.7,
+                    "BROADCAST": 0.5,
+                },
+                "action_cost": {
+                    "IDLE": 0.0,
+                    "VERIFY": 0.35,
+                    "COMMUNICATE": 0.15,
+                    "BROADCAST": 0.30,
+                },
             },
-            "action_cost": {
-                "IDLE": 0.0,
-                "VERIFY": 0.35,
-                "COMMUNICATE": 0.15,
-                "BROADCAST": 0.30,
-            },
+            "profiles": [{"name": "default", "count": 0}],
         },
     }
 
     cfg = OmegaConf.create(config_dict)
 
-    with pytest.raises(ValueError, match="world.num_agents must be > 0"):
+    with pytest.raises(ValueError, match="agent profile default count must be > 0"):
         validate_config(cfg)
 
 
@@ -137,24 +142,26 @@ def test_validate_config_invalid_observation_rate():
     """Test config validation with invalid observation event rate."""
     config_dict = {
         "world": {
-            "num_agents": 3,
             "observation": {"individual_event_rate": 1.5},  # Invalid: must be in [0, 1]
             "truths": {0: True},
             "noise": {"OBSERVE": 0.0, "HEAR": 0.1, "VERIFY": 0.05},
         },
         "agent": {
-            "action_preference": {
-                "IDLE": 0.0,
-                "VERIFY": 0.9,
-                "COMMUNICATE": 0.7,
-                "BROADCAST": 0.5,
+            "defaults": {
+                "action_preference": {
+                    "IDLE": 0.0,
+                    "VERIFY": 0.9,
+                    "COMMUNICATE": 0.7,
+                    "BROADCAST": 0.5,
+                },
+                "action_cost": {
+                    "IDLE": 0.0,
+                    "VERIFY": 0.35,
+                    "COMMUNICATE": 0.15,
+                    "BROADCAST": 0.30,
+                },
             },
-            "action_cost": {
-                "IDLE": 0.0,
-                "VERIFY": 0.35,
-                "COMMUNICATE": 0.15,
-                "BROADCAST": 0.30,
-            },
+            "profiles": [{"name": "default", "count": 3}],
         },
     }
 
@@ -171,7 +178,6 @@ def test_validate_config_negative_noise():
     """Test config validation with negative noise values."""
     config_dict = {
         "world": {
-            "num_agents": 3,
             "observation": {"individual_event_rate": 0.2},
             "truths": {0: True},
             "noise": {
@@ -181,18 +187,21 @@ def test_validate_config_negative_noise():
             },  # Invalid: negative noise
         },
         "agent": {
-            "action_preference": {
-                "IDLE": 0.0,
-                "VERIFY": 0.9,
-                "COMMUNICATE": 0.7,
-                "BROADCAST": 0.5,
+            "defaults": {
+                "action_preference": {
+                    "IDLE": 0.0,
+                    "VERIFY": 0.9,
+                    "COMMUNICATE": 0.7,
+                    "BROADCAST": 0.5,
+                },
+                "action_cost": {
+                    "IDLE": 0.0,
+                    "VERIFY": 0.35,
+                    "COMMUNICATE": 0.15,
+                    "BROADCAST": 0.30,
+                },
             },
-            "action_cost": {
-                "IDLE": 0.0,
-                "VERIFY": 0.35,
-                "COMMUNICATE": 0.15,
-                "BROADCAST": 0.30,
-            },
+            "profiles": [{"name": "default", "count": 3}],
         },
     }
 
@@ -206,31 +215,34 @@ def test_validate_config_invalid_action_preference():
     """Test config validation with invalid action preference."""
     config_dict = {
         "world": {
-            "num_agents": 3,
             "observation": {"individual_event_rate": 0.2},
             "truths": {0: True},
             "noise": {"OBSERVE": 0.0, "HEAR": 0.1, "VERIFY": 0.05},
         },
         "agent": {
-            "action_preference": {
-                "IDLE": 0.0,
-                "VERIFY": 1.5,
-                "COMMUNICATE": 0.7,
-                "BROADCAST": 0.5,
-            },  # Invalid: > 1
-            "action_cost": {
-                "IDLE": 0.0,
-                "VERIFY": 0.35,
-                "COMMUNICATE": 0.15,
-                "BROADCAST": 0.30,
+            "defaults": {
+                "action_preference": {
+                    "IDLE": 0.0,
+                    "VERIFY": 1.5,
+                    "COMMUNICATE": 0.7,
+                    "BROADCAST": 0.5,
+                },  # Invalid: > 1
+                "action_cost": {
+                    "IDLE": 0.0,
+                    "VERIFY": 0.35,
+                    "COMMUNICATE": 0.15,
+                    "BROADCAST": 0.30,
+                },
             },
+            "profiles": [{"name": "default", "count": 3}],
         },
     }
 
     cfg = OmegaConf.create(config_dict)
 
     with pytest.raises(
-        ValueError, match="agent.action_preference.VERIFY must be in \\[0, 1\\]"
+        ValueError,
+        match="agent.defaults.action_preference.VERIFY must be in \\[0, 1\\]",
     ):
         validate_config(cfg)
 
@@ -239,24 +251,26 @@ def test_validate_config_invalid_action_name():
     """Test config validation with invalid action name."""
     config_dict = {
         "world": {
-            "num_agents": 3,
             "observation": {"individual_event_rate": 0.2},
             "truths": {0: True},
             "noise": {"OBSERVE": 0.0, "HEAR": 0.1, "VERIFY": 0.05},
         },
         "agent": {
-            "action_preference": {
-                "IDLE": 0.0,
-                "VERIFY": 0.9,
-                "INVALID_ACTION": 0.7,
-                "BROADCAST": 0.5,
-            },  # Invalid action name
-            "action_cost": {
-                "IDLE": 0.0,
-                "VERIFY": 0.35,
-                "COMMUNICATE": 0.15,
-                "BROADCAST": 0.30,
+            "defaults": {
+                "action_preference": {
+                    "IDLE": 0.0,
+                    "VERIFY": 0.9,
+                    "INVALID_ACTION": 0.7,
+                    "BROADCAST": 0.5,
+                },  # Invalid action name
+                "action_cost": {
+                    "IDLE": 0.0,
+                    "VERIFY": 0.35,
+                    "COMMUNICATE": 0.15,
+                    "BROADCAST": 0.30,
+                },
             },
+            "profiles": [{"name": "default", "count": 3}],
         },
     }
 
@@ -270,31 +284,33 @@ def test_validate_config_negative_action_cost():
     """Test config validation with negative action cost."""
     config_dict = {
         "world": {
-            "num_agents": 3,
             "observation": {"individual_event_rate": 0.2},
             "truths": {0: True},
             "noise": {"OBSERVE": 0.0, "HEAR": 0.1, "VERIFY": 0.05},
         },
         "agent": {
-            "action_preference": {
-                "IDLE": 0.0,
-                "VERIFY": 0.9,
-                "COMMUNICATE": 0.7,
-                "BROADCAST": 0.5,
+            "defaults": {
+                "action_preference": {
+                    "IDLE": 0.0,
+                    "VERIFY": 0.9,
+                    "COMMUNICATE": 0.7,
+                    "BROADCAST": 0.5,
+                },
+                "action_cost": {
+                    "IDLE": 0.0,
+                    "VERIFY": -0.1,
+                    "COMMUNICATE": 0.15,
+                    "BROADCAST": 0.30,
+                },  # Invalid: negative cost
             },
-            "action_cost": {
-                "IDLE": 0.0,
-                "VERIFY": -0.1,
-                "COMMUNICATE": 0.15,
-                "BROADCAST": 0.30,
-            },  # Invalid: negative cost
+            "profiles": [{"name": "default", "count": 3}],
         },
     }
 
     cfg = OmegaConf.create(config_dict)
 
     with pytest.raises(
-        ValueError, match="agent.action_cost.VERIFY must be non-negative"
+        ValueError, match="agent.defaults.action_cost.VERIFY must be non-negative"
     ):
         validate_config(cfg)
 
@@ -303,24 +319,26 @@ def test_validate_config_invalid_truths():
     """Test config validation with invalid truth values."""
     config_dict = {
         "world": {
-            "num_agents": 3,
             "observation": {"individual_event_rate": 0.2},
             "truths": {0: "not_boolean", 1: False},  # Invalid: not boolean
             "noise": {"OBSERVE": 0.0, "HEAR": 0.1, "VERIFY": 0.05},
         },
         "agent": {
-            "action_preference": {
-                "IDLE": 0.0,
-                "VERIFY": 0.9,
-                "COMMUNICATE": 0.7,
-                "BROADCAST": 0.5,
+            "defaults": {
+                "action_preference": {
+                    "IDLE": 0.0,
+                    "VERIFY": 0.9,
+                    "COMMUNICATE": 0.7,
+                    "BROADCAST": 0.5,
+                },
+                "action_cost": {
+                    "IDLE": 0.0,
+                    "VERIFY": 0.35,
+                    "COMMUNICATE": 0.15,
+                    "BROADCAST": 0.30,
+                },
             },
-            "action_cost": {
-                "IDLE": 0.0,
-                "VERIFY": 0.35,
-                "COMMUNICATE": 0.15,
-                "BROADCAST": 0.30,
-            },
+            "profiles": [{"name": "default", "count": 3}],
         },
     }
 
@@ -328,46 +346,6 @@ def test_validate_config_invalid_truths():
 
     with pytest.raises(ValueError, match="world.truths.0 must be boolean"):
         validate_config(cfg)
-
-
-def test_convert_action_strings():
-    """Test conversion of string action keys to ActionType enums."""
-    config_dict = {
-        "agent": {
-            "action_preference": {
-                "IDLE": 0.0,
-                "VERIFY": 0.9,
-                "COMMUNICATE": 0.7,
-                "BROADCAST": 0.5,
-            },
-            "action_cost": {
-                "IDLE": 0.0,
-                "VERIFY": 0.35,
-                "COMMUNICATE": 0.15,
-                "BROADCAST": 0.30,
-            },
-        }
-    }
-
-    cfg = OmegaConf.create(config_dict)
-
-    converted_cfg = convert_action_strings(cfg)
-
-    # Action preferences should be converted to ActionType enums
-    assert ActionType.IDLE in converted_cfg.agent.action_preference
-    assert ActionType.VERIFY in converted_cfg.agent.action_preference
-    assert ActionType.COMMUNICATE in converted_cfg.agent.action_preference
-    assert ActionType.BROADCAST in converted_cfg.agent.action_preference
-
-    # Check values are preserved
-    assert converted_cfg.agent.action_preference[ActionType.IDLE] == 0.0
-    assert converted_cfg.agent.action_preference[ActionType.VERIFY] == 0.9
-
-    # Same for action costs
-    assert ActionType.IDLE in converted_cfg.agent.action_cost
-    assert ActionType.VERIFY in converted_cfg.agent.action_cost
-    assert converted_cfg.agent.action_cost[ActionType.IDLE] == 0.0
-    assert converted_cfg.agent.action_cost[ActionType.VERIFY] == 0.35
 
 
 def test_convert_noise_strings():
@@ -393,25 +371,27 @@ def test_build_world():
     """Test building a World instance from configuration."""
     config_dict = {
         "world": {
-            "num_agents": 3,
             "rng_seed": 42,
             "observation": {"individual_event_rate": 0.2},
             "truths": {0: True, 1: False},
             "noise": {"OBSERVE": 0.1, "HEAR": 0.05, "VERIFY": 0.02},
         },
         "agent": {
-            "action_preference": {
-                "IDLE": 0.1,
-                "VERIFY": 0.8,
-                "COMMUNICATE": 0.6,
-                "BROADCAST": 0.4,
+            "defaults": {
+                "action_preference": {
+                    "IDLE": 0.1,
+                    "VERIFY": 0.8,
+                    "COMMUNICATE": 0.6,
+                    "BROADCAST": 0.4,
+                },
+                "action_cost": {
+                    "IDLE": 0.05,
+                    "VERIFY": 0.3,
+                    "COMMUNICATE": 0.2,
+                    "BROADCAST": 0.25,
+                },
             },
-            "action_cost": {
-                "IDLE": 0.05,
-                "VERIFY": 0.3,
-                "COMMUNICATE": 0.2,
-                "BROADCAST": 0.25,
-            },
+            "profiles": [{"name": "default", "count": 3}],
         },
     }
 
@@ -450,15 +430,17 @@ def test_build_world_partial_config():
     """Test building a World with partial configuration (defaults should be used)."""
     config_dict = {
         "world": {
-            "num_agents": 2,
             "rng_seed": 10,
             "observation": {"individual_event_rate": 0.15},
             "truths": {0: True},
             "noise": {"OBSERVE": 0.05},  # Missing HEAR and VERIFY
         },
         "agent": {
-            "action_preference": {"VERIFY": 0.7},  # Missing other actions
-            "action_cost": {"VERIFY": 0.4},  # Missing other actions
+            "defaults": {
+                "action_preference": {"VERIFY": 0.7},  # Missing other actions
+                "action_cost": {"VERIFY": 0.4},  # Missing other actions
+            },
+            "profiles": [{"name": "default", "count": 2}],
         },
     }
 
@@ -491,7 +473,6 @@ def test_build_world_integration():
     """Test that built world works correctly (integration test)."""
     config_dict = {
         "world": {
-            "num_agents": 3,
             "rng_seed": 123,
             "observation": {
                 "individual_event_rate": 0.0
@@ -504,18 +485,21 @@ def test_build_world_integration():
             },  # No noise for deterministic test
         },
         "agent": {
-            "action_preference": {
-                "IDLE": 1.0,
-                "VERIFY": 0.0,
-                "COMMUNICATE": 0.0,
-                "BROADCAST": 0.0,
+            "defaults": {
+                "action_preference": {
+                    "IDLE": 1.0,
+                    "VERIFY": 0.0,
+                    "COMMUNICATE": 0.0,
+                    "BROADCAST": 0.0,
+                },
+                "action_cost": {
+                    "IDLE": 0.0,
+                    "VERIFY": 0.0,
+                    "COMMUNICATE": 0.0,
+                    "BROADCAST": 0.0,
+                },
             },
-            "action_cost": {
-                "IDLE": 0.0,
-                "VERIFY": 0.0,
-                "COMMUNICATE": 0.0,
-                "BROADCAST": 0.0,
-            },
+            "profiles": [{"name": "default", "count": 3}],
         },
     }
 
@@ -540,25 +524,27 @@ def test_load_config_and_build_world_integration():
     """Test full integration: load config from file and build world."""
     config_dict = {
         "world": {
-            "num_agents": 2,
             "rng_seed": 999,
             "observation": {"individual_event_rate": 0.1},
             "truths": {0: True},
             "noise": {"OBSERVE": 0.0, "HEAR": 0.0, "VERIFY": 0.0},
         },
         "agent": {
-            "action_preference": {
-                "IDLE": 0.0,
-                "VERIFY": 1.0,
-                "COMMUNICATE": 0.0,
-                "BROADCAST": 0.0,
+            "defaults": {
+                "action_preference": {
+                    "IDLE": 0.0,
+                    "VERIFY": 1.0,
+                    "COMMUNICATE": 0.0,
+                    "BROADCAST": 0.0,
+                },
+                "action_cost": {
+                    "IDLE": 0.0,
+                    "VERIFY": 0.1,
+                    "COMMUNICATE": 0.1,
+                    "BROADCAST": 0.1,
+                },
             },
-            "action_cost": {
-                "IDLE": 0.0,
-                "VERIFY": 0.1,
-                "COMMUNICATE": 0.1,
-                "BROADCAST": 0.1,
-            },
+            "profiles": [{"name": "default", "count": 2}],
         },
     }
 
@@ -581,35 +567,38 @@ def test_load_config_and_build_world_integration():
         os.unlink(config_path)
 
 
-def _flat_agent_config(num_agents: int = 3) -> dict:
+def _config(profiles: list[dict]) -> dict:
+    """Build a canonical config with the given profiles and minimal defaults."""
     return {
         "world": {
-            "num_agents": num_agents,
             "rng_seed": 0,
             "observation": {"individual_event_rate": 0.1},
             "truths": {0: True},
             "noise": {"OBSERVE": 0.0, "HEAR": 0.0, "VERIFY": 0.0},
         },
         "agent": {
-            "action_preference": {
-                "IDLE": 0.0,
-                "VERIFY": 0.9,
-                "COMMUNICATE": 0.7,
-                "BROADCAST": 0.5,
+            "defaults": {
+                "action_preference": {
+                    "IDLE": 0.0,
+                    "VERIFY": 0.9,
+                    "COMMUNICATE": 0.7,
+                    "BROADCAST": 0.5,
+                },
+                "action_cost": {
+                    "IDLE": 0.0,
+                    "VERIFY": 0.35,
+                    "COMMUNICATE": 0.15,
+                    "BROADCAST": 0.30,
+                },
             },
-            "action_cost": {
-                "IDLE": 0.0,
-                "VERIFY": 0.35,
-                "COMMUNICATE": 0.15,
-                "BROADCAST": 0.30,
-            },
+            "profiles": profiles,
         },
     }
 
 
-def test_flat_config_builds_default_profile():
-    """Old flat agent config builds; all agents use the implicit 'default' profile."""
-    cfg = OmegaConf.create(_flat_agent_config(num_agents=4))
+def test_single_default_profile_builds():
+    """A single 'default' profile builds the requested number of agents."""
+    cfg = OmegaConf.create(_config([{"name": "default", "count": 4}]))
     world = build_world(cfg)
 
     assert len(world.agents) == 4
@@ -626,7 +615,6 @@ def test_profiles_expand_counts_and_params():
     """Structured config expands profiles into the right counts and overrides."""
     config_dict = {
         "world": {
-            "num_agents": 50,
             "rng_seed": 0,
             "observation": {"individual_event_rate": 0.1},
             "truths": {0: True},
@@ -672,26 +660,55 @@ def test_profiles_expand_counts_and_params():
     assert by_profile["attentive"].default_trust == 0.5
 
 
-def test_profiles_count_mismatch_raises():
-    """Profile counts that don't sum to num_agents fail validation."""
-    config_dict = _flat_agent_config()
-    config_dict["world"]["num_agents"] = 50
-    config_dict["agent"] = {
-        "defaults": {"observation": {"attention": 1.0}},
-        "profiles": [
-            {"name": "a", "count": 20},
-            {"name": "b", "count": 29},  # sums to 49, not 50
-        ],
-    }
+def test_profile_counts_determine_total_agents():
+    """Total agents is the sum of profile counts; no separate world total."""
+    cfg = OmegaConf.create(
+        _config([{"name": "a", "count": 20}, {"name": "b", "count": 29}])
+    )
+    world = build_world(cfg)
+    assert len(world.agents) == 49
+    assert world.profile_counts == {"a": 20, "b": 29}
 
+
+def test_empty_profiles_raise():
+    """An empty profiles list is rejected."""
+    config_dict = _config([])
     cfg = OmegaConf.create(config_dict)
-    with pytest.raises(ValueError, match="counts must sum to world.num_agents"):
+    with pytest.raises(ValueError, match="at least one profile"):
         validate_config(cfg)
 
 
-def test_expand_agent_specs_flat_form():
-    """expand_agent_specs returns one spec per agent for the flat form."""
-    cfg = OmegaConf.create(_flat_agent_config(num_agents=3))
+def test_missing_defaults_raises():
+    """agent.defaults is required."""
+    config_dict = _config([{"name": "default", "count": 3}])
+    del config_dict["agent"]["defaults"]
+
+    cfg = OmegaConf.create(config_dict)
+    with pytest.raises(ValueError, match="agent.defaults is required"):
+        validate_config(cfg)
+
+
+def test_missing_profiles_raises():
+    """agent.profiles is required."""
+    config_dict = _config([{"name": "default", "count": 3}])
+    del config_dict["agent"]["profiles"]
+
+    cfg = OmegaConf.create(config_dict)
+    with pytest.raises(ValueError, match="agent.profiles is required"):
+        validate_config(cfg)
+
+
+def test_profile_missing_count_raises():
+    """Each profile must define a count."""
+    config_dict = _config([{"name": "default"}])
+    cfg = OmegaConf.create(config_dict)
+    with pytest.raises(ValueError, match="agent profile default count must be > 0"):
+        validate_config(cfg)
+
+
+def test_expand_agent_specs_single_profile():
+    """expand_agent_specs returns one spec per agent for a single default profile."""
+    cfg = OmegaConf.create(_config([{"name": "default", "count": 3}]))
     specs = expand_agent_specs(cfg)
 
     assert len(specs) == 3

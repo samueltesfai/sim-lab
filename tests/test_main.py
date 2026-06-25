@@ -18,25 +18,27 @@ def test_main_with_real_config_loading():
     """Test main with real config loading but mocked visualization."""
     config_dict = {
         "world": {
-            "num_agents": 2,
             "rng_seed": 42,
             "observation": {"individual_event_rate": 0.0},  # No random observations
             "truths": {0: True},
             "noise": {"OBSERVE": 0.0, "HEAR": 0.0, "VERIFY": 0.0},
         },
         "agent": {
-            "action_preference": {
-                "IDLE": 1.0,
-                "VERIFY": 0.0,
-                "COMMUNICATE": 0.0,
-                "BROADCAST": 0.0,
+            "defaults": {
+                "action_preference": {
+                    "IDLE": 1.0,
+                    "VERIFY": 0.0,
+                    "COMMUNICATE": 0.0,
+                    "BROADCAST": 0.0,
+                },
+                "action_cost": {
+                    "IDLE": 0.0,
+                    "VERIFY": 0.1,
+                    "COMMUNICATE": 0.1,
+                    "BROADCAST": 0.1,
+                },
             },
-            "action_cost": {
-                "IDLE": 0.0,
-                "VERIFY": 0.1,
-                "COMMUNICATE": 0.1,
-                "BROADCAST": 0.1,
-            },
+            "profiles": [{"name": "default", "count": 2}],
         },
     }
 
@@ -70,25 +72,27 @@ def test_main_telemetry_export_integration():
     """Test telemetry export with real file operations."""
     config_dict = {
         "world": {
-            "num_agents": 1,
             "rng_seed": 123,
             "observation": {"individual_event_rate": 0.0},
             "truths": {0: True},
             "noise": {"OBSERVE": 0.0, "HEAR": 0.0, "VERIFY": 0.0},
         },
         "agent": {
-            "action_preference": {
-                "IDLE": 1.0,
-                "VERIFY": 0.0,
-                "COMMUNICATE": 0.0,
-                "BROADCAST": 0.0,
+            "defaults": {
+                "action_preference": {
+                    "IDLE": 1.0,
+                    "VERIFY": 0.0,
+                    "COMMUNICATE": 0.0,
+                    "BROADCAST": 0.0,
+                },
+                "action_cost": {
+                    "IDLE": 0.0,
+                    "VERIFY": 0.1,
+                    "COMMUNICATE": 0.1,
+                    "BROADCAST": 0.1,
+                },
             },
-            "action_cost": {
-                "IDLE": 0.0,
-                "VERIFY": 0.1,
-                "COMMUNICATE": 0.1,
-                "BROADCAST": 0.1,
-            },
+            "profiles": [{"name": "default", "count": 1}],
         },
     }
 
@@ -154,15 +158,17 @@ def test_main_handles_run_viz_exceptions(mock_load_config, mock_run_viz):
     mock_cfg = OmegaConf.create(
         {
             "world": {
-                "num_agents": 1,
                 "rng_seed": 42,
                 "observation": {"individual_event_rate": 0.1},
                 "truths": {0: True},
                 "noise": {"OBSERVE": 0.0, "HEAR": 0.0, "VERIFY": 0.0},
             },
             "agent": {
-                "action_preference": {"IDLE": 0.0},
-                "action_cost": {"IDLE": 0.0},
+                "defaults": {
+                    "action_preference": {"IDLE": 0.0},
+                    "action_cost": {"IDLE": 0.0},
+                },
+                "profiles": [{"name": "default", "count": 1}],
             },
         }
     )

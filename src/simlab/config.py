@@ -57,10 +57,6 @@ def _validate_agent_settings(settings, *, context: str) -> None:
 
 def validate_config(cfg: OmegaConf) -> None:
     """Perform light validation on configuration."""
-    # World validation
-    if cfg.world.num_agents <= 0:
-        raise ValueError("world.num_agents must be > 0")
-
     rate = cfg.world.observation.individual_event_rate
     if not 0 <= rate <= 1:
         raise ValueError("world.observation.individual_event_rate must be in [0, 1]")
@@ -70,54 +66,32 @@ def validate_config(cfg: OmegaConf) -> None:
         if cfg.world.noise[noise_type] < 0:
             raise ValueError(f"world.noise.{noise_type} must be non-negative")
 
-    # Agent validation: support both the flat form (action_preference/action_cost
-    # directly under `agent`) and the structured form (defaults + profiles).
-    if "defaults" in cfg.agent or "profiles" in cfg.agent:
-        if "defaults" in cfg.agent:
-            _validate_agent_settings(cfg.agent.defaults, context="agent.defaults")
-        if "profiles" in cfg.agent:
-            total = 0
-            for profile in cfg.agent.profiles:
-                if "name" not in profile:
-                    raise ValueError("agent.profiles entries require a name")
-                if "count" not in profile or profile.count < 0:
-                    raise ValueError(
-                        f"agent.profiles.{profile.get('name')} requires a non-negative count"
-                    )
-                total += profile.count
-                _validate_agent_settings(
-                    profile, context=f"agent.profiles.{profile.name}"
-                )
-            if total != cfg.world.num_agents:
-                raise ValueError(
-                    "agent.profiles counts must sum to world.num_agents "
-                    f"(got {total}, expected {cfg.world.num_agents})"
-                )
-    else:
-        _validate_agent_settings(cfg.agent, context="agent")
+    # Agent validation. There is exactly one canonical schema:
+    #   agent.defaults  -> baseline cognitive/action parameters
+    #   agent.profiles  -> concrete subpopulations (each with a count)
+    # The total number of agents is the sum of the profile counts.
+    if "defaults" not in cfg.agent:
+        raise ValueError("agent.defaults is required")
+    if "profiles" not in cfg.agent:
+        raise ValueError("agent.profiles is required")
+
+    _validate_agent_settings(cfg.agent.defaults, context="agent.defaults")
+
+    if not cfg.agent.profiles:
+        raise ValueError("agent.profiles must contain at least one profile")
+
+    for profile in cfg.agent.profiles:
+        if "name" not in profile:
+            raise ValueError("each agent profile must define name")
+        name = profile.name
+        if "count" not in profile or profile.count <= 0:
+            raise ValueError(f"agent profile {name} count must be > 0")
+        _validate_agent_settings(profile, context=f"agent.profiles.{name}")
 
     # Truths validation
     for claim_id, truth in cfg.world.truths.items():
         if not isinstance(truth, bool):
             raise ValueError(f"world.truths.{claim_id} must be boolean")
-
-
-def convert_action_strings(cfg: OmegaConf) -> OmegaConf:
-    """Convert string action keys to ActionType enums (flat agent form)."""
-
-    # Convert action preferences
-    pref_dict = {}
-    for action_str, value in cfg.agent.action_preference.items():
-        pref_dict[ActionType[action_str]] = value
-    cfg.agent.action_preference = pref_dict
-
-    # Convert action costs
-    cost_dict = {}
-    for action_str, value in cfg.agent.action_cost.items():
-        cost_dict[ActionType[action_str]] = value
-    cfg.agent.action_cost = cost_dict
-
-    return cfg
 
 
 def convert_noise_strings(cfg: OmegaConf) -> OmegaConf:
@@ -183,33 +157,39 @@ def _settings_to_agent_kwargs(settings: dict, profile_name: str) -> dict:
 
 
 def expand_agent_specs(cfg: OmegaConf) -> list[dict]:
-    """Expand the agent config into one Agent kwargs spec per agent.
+    """Expand ``agent.defaults`` + ``agent.profiles`` into one Agent spec per agent.
 
-    Supports both the flat form (action maps directly under ``agent``) and the
-    structured form (``agent.defaults`` + ``agent.profiles``). When no profiles
-    are given, a single implicit ``default`` profile covering all agents is used.
+    Each profile inherits ``agent.defaults`` and may override any subset of
+    settings. The total number of agents is the sum of the profile counts.
     """
     agent_cfg = OmegaConf.to_container(cfg.agent, resolve=True)
 
-    if "defaults" in agent_cfg or "profiles" in agent_cfg:
-        defaults = agent_cfg.get("defaults", {})
-        profiles = agent_cfg.get("profiles")
-    else:
-        # Flat form: the whole agent node acts as the defaults for one profile.
-        defaults = agent_cfg
-        profiles = None
+    if "defaults" not in agent_cfg:
+        raise ValueError("agent.defaults is required")
+    if "profiles" not in agent_cfg:
+        raise ValueError("agent.profiles is required")
+
+    defaults = agent_cfg["defaults"]
+    profiles = agent_cfg["profiles"]
 
     if not profiles:
-        profiles = [{"name": "default", "count": cfg.world.num_agents}]
+        raise ValueError("agent.profiles must contain at least one profile")
 
     specs: list[dict] = []
     for profile in profiles:
-        name = profile.get("name", "default")
-        count = profile.get("count", 0)
+        if "name" not in profile:
+            raise ValueError("each agent profile must define name")
+        name = profile["name"]
+        if "count" not in profile:
+            raise ValueError(f"agent profile {name} must define count")
+        count = int(profile["count"])
+        if count <= 0:
+            raise ValueError(f"agent profile {name} count must be > 0")
+
         overrides = {k: v for k, v in profile.items() if k not in {"name", "count"}}
         merged = _deep_merge(defaults, overrides)
         kwargs = _settings_to_agent_kwargs(merged, name)
-        specs.extend(kwargs for _ in range(count))
+        specs.extend(dict(kwargs) for _ in range(count))
 
     return specs
 
@@ -217,12 +197,12 @@ def expand_agent_specs(cfg: OmegaConf) -> list[dict]:
 def build_world(cfg: OmegaConf):
     """Build a World instance from configuration."""
 
-    # World noise -> enum-keyed dict (does not depend on agent form).
+    # World noise -> enum-keyed dict.
     noise = {
         MemoryType[noise_str]: value for noise_str, value in cfg.world.noise.items()
     }
 
-    # Expand agents (handles both flat and profile-based configs).
+    # Expand agent.defaults + agent.profiles into concrete agents.
     specs = expand_agent_specs(cfg)
 
     agents = []

@@ -1,4 +1,4 @@
-# Simulation Model Design
+ # Simulation Model Design
 
 ## Table of Contents
 
@@ -205,7 +205,7 @@ Perceptual noise is intentionally applied only once (during event generation) to
 The expected number of observation memories per tick is therefore:
 
 ```text
-num_agents × individual_observation_event_rate × observation_attention
+(number of agents) × individual_observation_event_rate × observation_attention
 ```
 
 Interpretation:
@@ -376,12 +376,22 @@ These should be understood as a baseline prototype regime, not a final calibrate
 
 ### Agent Profiles
 
-Agent heterogeneity is configured through profiles. The `agent` config supports two forms:
+Agent heterogeneity is configured through a single canonical schema with exactly two pieces:
 
-- **Flat form** (legacy): `agent.action_preference` and `agent.action_cost` directly under `agent`. All agents are identical and assigned the implicit profile name `"default"`.
-- **Structured form**: `agent.defaults` providing baseline settings, plus a list of `agent.profiles`. Each profile has a `name`, a `count`, and any subset of overrides (`observation`, `trust`, `learning`, `action_preference`, `action_cost`). Profile overrides are deep-merged onto the defaults, and profile `count`s must sum to `world.num_agents`.
+- `agent.defaults`: the baseline cognitive/action parameters shared by every agent.
+- `agent.profiles`: a list of concrete subpopulations. Each profile has a `name`, a `count`, and any subset of overrides (`observation`, `trust`, `learning`, `action_preference`, `action_cost`). Profile overrides are deep-merged onto the defaults.
 
-Example:
+Both `agent.defaults` and `agent.profiles` are required, and `agent.profiles` must contain at least one profile (each with `count > 0`). The total number of agents is the sum of the profile counts — there is no separate `world.num_agents` and no flat agent form; counts live with the agents they describe. The homogeneous case is just a single profile:
+
+```yaml
+agent:
+  defaults: { ... }
+  profiles:
+    - name: default
+      count: 50
+```
+
+A heterogeneous example:
 
 ```yaml
 agent:
