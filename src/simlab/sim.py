@@ -22,12 +22,6 @@ class MemoryType(Enum):
     HEAR = "heard"
 
 
-class ObservationScope(Enum):
-    INDIVIDUAL = "individual"  # visible to a single agent
-    LOCAL = "local"  # visible to a subset of agents
-    GLOBAL = "global"  # visible to all agents
-
-
 @dataclass
 class Action:
     type: ActionType
@@ -68,14 +62,14 @@ class ObservationEvent:
     """A world-generated observation opportunity.
 
     The world produces these; agents may notice and encode them into memories.
-    An event carries a truth-grounded evidence signal and a visibility scope.
+    An event carries a truth-grounded evidence signal and the agents who could
+    potentially perceive it.
     """
 
     id: int
     tick: int
     claim_id: int
     evidence: float
-    scope: ObservationScope
     visible_agent_ids: tuple[int, ...]
 
 
@@ -156,35 +150,30 @@ class Agent:
         self,
         world: "World",
         memory_type: MemoryType,
+        claim_id: int,
+        evidence: float,
         source: int | None = None,
-        claim_id: int | None = None,
-        evidence: float | None = None,
     ):
         """
         Add a memory to the agent's memory list.
+
+        Memories only store already-formed evidence. Evidence is produced by
+        the world (observation/verification) or by social interaction (hearing)
+        and encoded by the agent before being stored here, so every memory
+        type requires an explicit ``claim_id`` and ``evidence``.
 
         :param self:
         :param world: The world in which the agent is adding the memory
         :type world: 'World'
         :param memory_type: The type of memory being added
         :type memory_type: MemoryType
+        :param claim_id: The ID of the claim for the memory
+        :type claim_id: int
+        :param evidence: The evidence value for the memory
+        :type evidence: float
         :param source: The ID of the source agent for the memory (if applicable)
         :type source: int | None
-        :param claim_id: The ID of the claim for the memory (if applicable)
-        :type claim_id: int | None
-        :param evidence: The evidence value for the memory (if applicable)
-        :type evidence: float | None
         """
-
-        # Memories only store already-formed evidence. Evidence is produced by
-        # the world (observation/verification) or by social interaction (hearing)
-        # and encoded by the agent before being stored here.
-        if memory_type in {MemoryType.OBSERVE, MemoryType.HEAR, MemoryType.VERIFY}:
-            if claim_id is None:
-                raise ValueError(f"{memory_type} memory requires claim_id")
-            if evidence is None:
-                raise ValueError(f"{memory_type} memory requires evidence")
-
         memory = Memory(
             id=len(self.memory),
             type=memory_type,
@@ -537,7 +526,8 @@ class World:
         truths: dict[int, bool],
         rng_seed: int = 0,
         noise: dict[MemoryType, float] | None = None,
-        individual_observation_event_rate: float = 0.1,
+        private_event_rate: float = 0.1,
+        global_event_rate: float = 0.0,
     ):
         self._agents = {a.id: a for a in agents}
         self.tick = 0
@@ -548,8 +538,12 @@ class World:
             MemoryType.VERIFY: 0.0,
         } | (noise or {})
         self.truths = truths
-        # Per-agent rate at which the world emits an individual observation event.
-        self.individual_observation_event_rate = individual_observation_event_rate
+        # private_event_rate: per-agent per-tick chance of a private observation
+        #   event visible only to that agent.
+        # global_event_rate: per-tick chance of one shared observation event
+        #   visible to all agents.
+        self.private_event_rate = private_event_rate
+        self.global_event_rate = global_event_rate
         self._next_event_id = 0
         self.network = self._generate_dummy_network(
             # TODO: We can implement a more complex network generation mechanism here,
@@ -662,11 +656,14 @@ class World:
         """
         Generate this tick's passive observation events.
 
-        Uses a per-agent ambient process: each agent independently gets an
-        individual observation opportunity with probability
-        ``individual_observation_event_rate``. This preserves the statistical
-        shape of the previous per-agent observation model while separating world
-        event generation from agent perception.
+        Two kinds of events are emitted:
+
+        - Private events preserve the old per-agent observation behavior: each
+          agent independently has a ``private_event_rate`` chance of an
+          observation opportunity visible only to them.
+        - Global events represent shared world incidents: with a per-tick
+          ``global_event_rate`` chance, the world emits one observation event
+          visible to every agent.
 
         :param self: The world instance
         :type self: World
@@ -675,8 +672,9 @@ class World:
         """
         events: list[ObservationEvent] = []
 
+        # Private observation events: one-agent visibility.
         for agent in self.agents:
-            if self.rng.random() >= self.individual_observation_event_rate:
+            if self.rng.random() >= self.private_event_rate:
                 continue
 
             claim_id = self.rng.choice(self.claims)
@@ -688,8 +686,23 @@ class World:
                     tick=self.tick,
                     claim_id=claim_id,
                     evidence=evidence,
-                    scope=ObservationScope.INDIVIDUAL,
                     visible_agent_ids=(agent.id,),
+                )
+            )
+            self._next_event_id += 1
+
+        # Global observation event: all-agent visibility.
+        if self.rng.random() < self.global_event_rate:
+            claim_id = self.rng.choice(self.claims)
+            evidence = self.generate_observation_evidence(claim_id)
+
+            events.append(
+                ObservationEvent(
+                    id=self._next_event_id,
+                    tick=self.tick,
+                    claim_id=claim_id,
+                    evidence=evidence,
+                    visible_agent_ids=tuple(agent.id for agent in self.agents),
                 )
             )
             self._next_event_id += 1

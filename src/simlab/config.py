@@ -38,7 +38,7 @@ def _validate_action_map(
 
 
 def _validate_agent_settings(settings, *, context: str) -> None:
-    """Validate the action maps inside an agent settings node (defaults/profile)."""
+    """Validate the maps inside an agent settings node (defaults/profile)."""
     if "action_preference" in settings:
         _validate_action_map(
             settings.action_preference,
@@ -54,12 +54,22 @@ def _validate_agent_settings(settings, *, context: str) -> None:
             max_value=None,
         )
 
+    observation = settings.get("observation", {})
+    if "attention" in observation and not 0 <= observation.attention <= 1:
+        raise ValueError(f"{context}.observation.attention must be in [0, 1]")
+    if "bias" in observation and not -1 <= observation.bias <= 1:
+        raise ValueError(f"{context}.observation.bias must be in [-1, 1]")
+
 
 def validate_config(cfg: OmegaConf) -> None:
     """Perform light validation on configuration."""
-    rate = cfg.world.observation.individual_event_rate
-    if not 0 <= rate <= 1:
-        raise ValueError("world.observation.individual_event_rate must be in [0, 1]")
+    private_rate = cfg.world.observation.private_event_rate
+    if not 0 <= private_rate <= 1:
+        raise ValueError("world.observation.private_event_rate must be in [0, 1]")
+
+    global_rate = cfg.world.observation.global_event_rate
+    if not 0 <= global_rate <= 1:
+        raise ValueError("world.observation.global_event_rate must be in [0, 1]")
 
     # Noise validation
     for noise_type in ["OBSERVE", "HEAR", "VERIFY"]:
@@ -222,7 +232,8 @@ def build_world(cfg: OmegaConf):
         truths=cfg.world.truths,
         rng_seed=cfg.world.rng_seed,
         noise=noise,
-        individual_observation_event_rate=cfg.world.observation.individual_event_rate,
+        private_event_rate=cfg.world.observation.private_event_rate,
+        global_event_rate=cfg.world.observation.global_event_rate,
     )
 
     return world

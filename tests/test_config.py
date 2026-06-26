@@ -25,7 +25,7 @@ def test_load_config_success():
     config_dict = {
         "world": {
             "rng_seed": 42,
-            "observation": {"individual_event_rate": 0.1},
+            "observation": {"private_event_rate": 0.1, "global_event_rate": 0.0},
             "truths": {0: True, 1: False},
             "noise": {"OBSERVE": 0.0, "HEAR": 0.1, "VERIFY": 0.05},
         },
@@ -58,7 +58,7 @@ def test_load_config_success():
         # Test accessing the config as OmegaConf/DictConfig
         assert cfg.agent.profiles[0].count == 5
         assert cfg.world.rng_seed == 42
-        assert cfg.world.observation.individual_event_rate == 0.1
+        assert cfg.world.observation.private_event_rate == 0.1
         assert cfg.world.truths == {0: True, 1: False}
         assert cfg.agent.defaults.action_preference.IDLE == 0.0
         assert cfg.agent.defaults.action_preference.VERIFY == 0.9
@@ -76,7 +76,7 @@ def test_validate_config_success():
     """Test config validation with valid config."""
     config_dict = {
         "world": {
-            "observation": {"individual_event_rate": 0.2},
+            "observation": {"private_event_rate": 0.2, "global_event_rate": 0.0},
             "truths": {0: True, 1: False},
             "noise": {"OBSERVE": 0.0, "HEAR": 0.1, "VERIFY": 0.05},
         },
@@ -109,7 +109,7 @@ def test_validate_config_invalid_profile_count():
     """Test config validation with a non-positive profile count."""
     config_dict = {
         "world": {
-            "observation": {"individual_event_rate": 0.2},
+            "observation": {"private_event_rate": 0.2, "global_event_rate": 0.0},
             "truths": {0: True},
             "noise": {"OBSERVE": 0.0, "HEAR": 0.1, "VERIFY": 0.05},
         },
@@ -142,7 +142,10 @@ def test_validate_config_invalid_observation_rate():
     """Test config validation with invalid observation event rate."""
     config_dict = {
         "world": {
-            "observation": {"individual_event_rate": 1.5},  # Invalid: must be in [0, 1]
+            "observation": {
+                "private_event_rate": 1.5,
+                "global_event_rate": 0.0,
+            },  # Invalid: must be in [0, 1]
             "truths": {0: True},
             "noise": {"OBSERVE": 0.0, "HEAR": 0.1, "VERIFY": 0.05},
         },
@@ -169,7 +172,7 @@ def test_validate_config_invalid_observation_rate():
 
     with pytest.raises(
         ValueError,
-        match="world.observation.individual_event_rate must be in \\[0, 1\\]",
+        match="world.observation.private_event_rate must be in \\[0, 1\\]",
     ):
         validate_config(cfg)
 
@@ -178,7 +181,7 @@ def test_validate_config_negative_noise():
     """Test config validation with negative noise values."""
     config_dict = {
         "world": {
-            "observation": {"individual_event_rate": 0.2},
+            "observation": {"private_event_rate": 0.2, "global_event_rate": 0.0},
             "truths": {0: True},
             "noise": {
                 "OBSERVE": -0.1,
@@ -215,7 +218,7 @@ def test_validate_config_invalid_action_preference():
     """Test config validation with invalid action preference."""
     config_dict = {
         "world": {
-            "observation": {"individual_event_rate": 0.2},
+            "observation": {"private_event_rate": 0.2, "global_event_rate": 0.0},
             "truths": {0: True},
             "noise": {"OBSERVE": 0.0, "HEAR": 0.1, "VERIFY": 0.05},
         },
@@ -251,7 +254,7 @@ def test_validate_config_invalid_action_name():
     """Test config validation with invalid action name."""
     config_dict = {
         "world": {
-            "observation": {"individual_event_rate": 0.2},
+            "observation": {"private_event_rate": 0.2, "global_event_rate": 0.0},
             "truths": {0: True},
             "noise": {"OBSERVE": 0.0, "HEAR": 0.1, "VERIFY": 0.05},
         },
@@ -284,7 +287,7 @@ def test_validate_config_negative_action_cost():
     """Test config validation with negative action cost."""
     config_dict = {
         "world": {
-            "observation": {"individual_event_rate": 0.2},
+            "observation": {"private_event_rate": 0.2, "global_event_rate": 0.0},
             "truths": {0: True},
             "noise": {"OBSERVE": 0.0, "HEAR": 0.1, "VERIFY": 0.05},
         },
@@ -319,7 +322,7 @@ def test_validate_config_invalid_truths():
     """Test config validation with invalid truth values."""
     config_dict = {
         "world": {
-            "observation": {"individual_event_rate": 0.2},
+            "observation": {"private_event_rate": 0.2, "global_event_rate": 0.0},
             "truths": {0: "not_boolean", 1: False},  # Invalid: not boolean
             "noise": {"OBSERVE": 0.0, "HEAR": 0.1, "VERIFY": 0.05},
         },
@@ -372,7 +375,7 @@ def test_build_world():
     config_dict = {
         "world": {
             "rng_seed": 42,
-            "observation": {"individual_event_rate": 0.2},
+            "observation": {"private_event_rate": 0.2, "global_event_rate": 0.0},
             "truths": {0: True, 1: False},
             "noise": {"OBSERVE": 0.1, "HEAR": 0.05, "VERIFY": 0.02},
         },
@@ -401,7 +404,7 @@ def test_build_world():
     # Check world properties
     assert len(world.agents) == 3
     # World doesn't store rng_seed as attribute
-    assert world.individual_observation_event_rate == 0.2
+    assert world.private_event_rate == 0.2
     assert world.truths == {0: True, 1: False}
     assert world.noise[MemoryType.OBSERVE] == 0.1
     assert world.noise[MemoryType.HEAR] == 0.05
@@ -431,7 +434,7 @@ def test_build_world_partial_config():
     config_dict = {
         "world": {
             "rng_seed": 10,
-            "observation": {"individual_event_rate": 0.15},
+            "observation": {"private_event_rate": 0.15, "global_event_rate": 0.0},
             "truths": {0: True},
             "noise": {"OBSERVE": 0.05},  # Missing HEAR and VERIFY
         },
@@ -475,7 +478,8 @@ def test_build_world_integration():
         "world": {
             "rng_seed": 123,
             "observation": {
-                "individual_event_rate": 0.0
+                "private_event_rate": 0.0,
+                "global_event_rate": 0.0,
             },  # No random observations for deterministic test
             "truths": {0: True, 1: False},
             "noise": {
@@ -525,7 +529,7 @@ def test_load_config_and_build_world_integration():
     config_dict = {
         "world": {
             "rng_seed": 999,
-            "observation": {"individual_event_rate": 0.1},
+            "observation": {"private_event_rate": 0.1, "global_event_rate": 0.0},
             "truths": {0: True},
             "noise": {"OBSERVE": 0.0, "HEAR": 0.0, "VERIFY": 0.0},
         },
@@ -572,7 +576,7 @@ def _config(profiles: list[dict]) -> dict:
     return {
         "world": {
             "rng_seed": 0,
-            "observation": {"individual_event_rate": 0.1},
+            "observation": {"private_event_rate": 0.1, "global_event_rate": 0.0},
             "truths": {0: True},
             "noise": {"OBSERVE": 0.0, "HEAR": 0.0, "VERIFY": 0.0},
         },
@@ -616,7 +620,7 @@ def test_profiles_expand_counts_and_params():
     config_dict = {
         "world": {
             "rng_seed": 0,
-            "observation": {"individual_event_rate": 0.1},
+            "observation": {"private_event_rate": 0.1, "global_event_rate": 0.0},
             "truths": {0: True},
             "noise": {"OBSERVE": 0.1, "HEAR": 0.15, "VERIFY": 0.05},
         },

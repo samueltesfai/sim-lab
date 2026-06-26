@@ -12,7 +12,6 @@ from simlab.sim import (
     Snapshot,
     ActionType,
     MemoryType,
-    ObservationScope,
     ObservationEvent,
     clamp,
 )
@@ -383,10 +382,10 @@ def test_agent_add_memory():
     assert memory.source == 1
     assert memory.claim_id == 0
 
-    # Evidence-bearing memories require explicit claim_id and evidence
-    with pytest.raises(ValueError, match="requires evidence"):
+    # Memories require explicit claim_id and evidence
+    with pytest.raises(TypeError):
         agent.add_memory(world, MemoryType.OBSERVE, claim_id=0)
-    with pytest.raises(ValueError, match="requires claim_id"):
+    with pytest.raises(TypeError):
         agent.add_memory(world, MemoryType.VERIFY, evidence=0.5)
 
 
@@ -423,13 +422,15 @@ def test_world_initialization():
         truths={0: True, 1: False},
         rng_seed=42,
         noise={MemoryType.OBSERVE: 0.1, MemoryType.HEAR: 0.2},
-        individual_observation_event_rate=0.3,
+        private_event_rate=0.3,
+        global_event_rate=0.2,
     )
 
     assert len(world.agents) == 3
     assert world.truths == {0: True, 1: False}
     assert world.tick == 0
-    assert world.individual_observation_event_rate == 0.3
+    assert world.private_event_rate == 0.3
+    assert world.global_event_rate == 0.2
     assert world.noise[MemoryType.OBSERVE] == 0.1
     assert world.noise[MemoryType.HEAR] == 0.2
     assert world.noise[MemoryType.VERIFY] == 0.0  # Default
@@ -501,14 +502,13 @@ def test_world_observation_events():
     world = _build_world(3)
 
     # Set rate to 1.0 so the world emits one event per agent (deterministic).
-    world.individual_observation_event_rate = 1.0
+    world.private_event_rate = 1.0
 
     events = world.generate_observation_events()
 
     assert isinstance(events, list)
-    assert len(events) == 3  # One individual event per agent
+    assert len(events) == 3  # One private event per agent
     for event in events:
-        assert event.scope == ObservationScope.INDIVIDUAL
         assert len(event.visible_agent_ids) == 1
         assert event.claim_id in world.claims
         assert 0.0 <= event.evidence <= 1.0
@@ -665,7 +665,7 @@ def test_attention_zero_forms_no_observation_memories():
         agents=agents,
         truths={0: True},
         rng_seed=1,
-        individual_observation_event_rate=1.0,
+        private_event_rate=1.0,
     )
 
     snapshot = world.step()
@@ -681,7 +681,7 @@ def test_attention_one_all_visible_agents_observe():
         agents=agents,
         truths={0: True},
         rng_seed=1,
-        individual_observation_event_rate=1.0,
+        private_event_rate=1.0,
     )
 
     events = world.generate_observation_events()
@@ -689,6 +689,75 @@ def test_attention_one_all_visible_agents_observe():
 
     assert len(events) == 5
     assert sorted(observed) == [0, 1, 2, 3, 4]
+
+
+def test_private_events_one_per_agent():
+    """With private_event_rate 1.0 and no global events, one event per agent."""
+    agents = [Agent(i, rng_seed=i) for i in range(5)]
+    world = World(
+        agents=agents,
+        truths={0: True},
+        rng_seed=1,
+        private_event_rate=1.0,
+        global_event_rate=0.0,
+    )
+
+    events = world.generate_observation_events()
+
+    assert len(events) == 5
+    for event in events:
+        assert len(event.visible_agent_ids) == 1
+
+
+def test_global_event_visible_to_all_agents():
+    """With global_event_rate 1.0 and no private events, one all-visible event."""
+    agents = [Agent(i, rng_seed=i) for i in range(5)]
+    world = World(
+        agents=agents,
+        truths={0: True},
+        rng_seed=1,
+        private_event_rate=0.0,
+        global_event_rate=1.0,
+    )
+
+    events = world.generate_observation_events()
+
+    assert len(events) == 1
+    assert sorted(events[0].visible_agent_ids) == [0, 1, 2, 3, 4]
+
+
+def test_global_event_attention_zero_forms_no_memories():
+    """A global event is emitted but no memories form when attention is 0."""
+    agents = [Agent(i, rng_seed=i, observation_attention=0.0) for i in range(5)]
+    world = World(
+        agents=agents,
+        truths={0: True},
+        rng_seed=1,
+        private_event_rate=0.0,
+        global_event_rate=1.0,
+    )
+
+    snapshot = world.step()
+
+    assert snapshot.observation_event_count == 1
+    assert len(snapshot.observed_ids) == 0
+
+
+def test_global_event_attention_one_all_observe():
+    """A global event noticed by every agent forms a memory for each."""
+    agents = [Agent(i, rng_seed=i, observation_attention=1.0) for i in range(5)]
+    world = World(
+        agents=agents,
+        truths={0: True},
+        rng_seed=1,
+        private_event_rate=0.0,
+        global_event_rate=1.0,
+    )
+
+    snapshot = world.step()
+
+    assert snapshot.observation_event_count == 1
+    assert len(snapshot.observed_ids) == len(agents)
 
 
 def test_encode_observation_applies_bias():
@@ -700,7 +769,6 @@ def test_encode_observation_applies_bias():
         tick=0,
         claim_id=0,
         evidence=0.5,
-        scope=ObservationScope.INDIVIDUAL,
         visible_agent_ids=(0,),
     )
 

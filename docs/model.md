@@ -109,7 +109,6 @@ An `ObservationEvent` contains:
 - `tick`: world tick at which the event was emitted
 - `claim_id`: claim the event concerns
 - `evidence`: truth-grounded, noisy signal value in `[0, 1]`
-- `scope`: an `ObservationScope` (`INDIVIDUAL`, `LOCAL`, or `GLOBAL`)
 - `visible_agent_ids`: the agents who could potentially perceive the event
 
 Agents may notice world events depending on their attention parameters. Noticed events are encoded into subjective memories, potentially with a systematic perceptual bias. Belief updates operate over memories, not directly over world events.
@@ -123,7 +122,7 @@ Agents encode signals as memories (perception).
 Agents update beliefs from memories (learning).
 ```
 
-Only `INDIVIDUAL` scope is exercised by the current kernel; `LOCAL` and `GLOBAL` exist to leave room for localized events, shocks, and broadcasts in future work.
+The current kernel emits only individual events (each visible to a single agent via `visible_agent_ids`). Wider-reaching events (localized clusters, shocks, broadcasts) are deferred to future work.
 
 ---
 
@@ -186,7 +185,12 @@ This is a placeholder topology intended for prototyping.
 
 Observation is **world-driven**, not chosen as an intentional action. It is now modeled as a two-stage pipeline: the world emits observation *events*, and agents may notice and encode them.
 
-**Stage 1 — world emits events.** Each tick, the world runs a per-agent ambient process: each agent independently gets an individual observation opportunity with probability `world.individual_observation_event_rate`. The event evidence is grounded in objective truth plus observation noise:
+**Stage 1 — world emits events.** Each tick, the world emits two kinds of observation events, each carrying a set of `visible_agent_ids`:
+
+- **Private events** preserve the old per-agent behavior: each agent independently gets a private observation opportunity with probability `world.private_event_rate` (a *per-agent per-tick* rate), visible only to that agent.
+- **Global events** represent shared world incidents: with per-tick probability `world.global_event_rate`, the world emits one event visible to *every* agent.
+
+Event evidence is grounded in objective truth plus observation noise:
 
 ```python
 base = float(world.truths[claim_id])
@@ -194,18 +198,18 @@ noise = world.rng.gauss(0, world.noise[MemoryType.OBSERVE])
 evidence = clamp(base + noise)
 ```
 
-**Stage 2 — agents notice and encode.** Each visible agent decides whether it notices the event (with probability `observation_attention`) and, if so, encodes it into a subjective `OBSERVE` memory by applying its perceptual bias:
+**Stage 2 — agents notice and encode.** Each visible agent independently decides whether it notices the event (with probability `observation_attention`) and, if so, encodes it into a subjective `OBSERVE` memory by applying its perceptual bias:
 
 ```python
 encoded = clamp(event.evidence + agent.observation_bias)
 ```
 
-Perceptual noise is intentionally applied only once (during event generation) to avoid double-counting observation noise.
+A global event may be visible to all agents but is not necessarily noticed by all of them. Perceptual noise is intentionally applied only once (during event generation) to avoid double-counting observation noise.
 
-The expected number of observation memories per tick is therefore:
+The expected number of observation memories per tick from private events is therefore:
 
 ```text
-(number of agents) × individual_observation_event_rate × observation_attention
+(number of agents) × private_event_rate × observation_attention
 ```
 
 Interpretation:
@@ -493,14 +497,14 @@ A single tick of `World.step()` currently proceeds as follows:
 
 ### Observation Phase
 
-The world first emits observation events using a per-agent ambient process, then delivers them to agents who may notice and encode them:
+The world first emits observation events (private per-agent events plus an optional global event), then delivers them to agents who may notice and encode them:
 
 ```python
 events = self.generate_observation_events()
 observed_ids = self.deliver_observation_events(events)
 ```
 
-Each agent independently gets an individual observation opportunity with probability `world.individual_observation_event_rate`, and whether it forms a memory additionally depends on its `observation_attention`. See the Observation channel section for details.
+Each agent independently gets a private observation opportunity with probability `world.private_event_rate`, and the world emits a shared global event with probability `world.global_event_rate`. Whether a visible agent forms a memory additionally depends on its `observation_attention`. See the Observation channel section for details.
 
 ### Action Phase
 
@@ -587,7 +591,7 @@ Not yet modeled:
 - community-structured graphs
 - multi-step planning or expected utility
 - claim salience or per-claim attention allocation
-- non-individual world event scopes (`LOCAL`/`GLOBAL` events, shocks, campaigns)
+- wider-reaching world events (localized clusters, shocks, broadcasts, campaigns)
 - agent-specific perceptual noise (only systematic bias is modeled today)
 - memory decay or forgetting
 - action budgets / cooldowns / fatigue

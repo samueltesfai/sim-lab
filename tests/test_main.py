@@ -19,7 +19,10 @@ def test_main_with_real_config_loading():
     config_dict = {
         "world": {
             "rng_seed": 42,
-            "observation": {"individual_event_rate": 0.0},  # No random observations
+            "observation": {
+                "private_event_rate": 0.0,
+                "global_event_rate": 0.0,
+            },  # No random observations
             "truths": {0: True},
             "noise": {"OBSERVE": 0.0, "HEAR": 0.0, "VERIFY": 0.0},
         },
@@ -73,7 +76,7 @@ def test_main_telemetry_export_integration():
     config_dict = {
         "world": {
             "rng_seed": 123,
-            "observation": {"individual_event_rate": 0.0},
+            "observation": {"private_event_rate": 0.0, "global_event_rate": 0.0},
             "truths": {0: True},
             "noise": {"OBSERVE": 0.0, "HEAR": 0.0, "VERIFY": 0.0},
         },
@@ -159,7 +162,7 @@ def test_main_handles_run_viz_exceptions(mock_load_config, mock_run_viz):
         {
             "world": {
                 "rng_seed": 42,
-                "observation": {"individual_event_rate": 0.1},
+                "observation": {"private_event_rate": 0.1, "global_event_rate": 0.0},
                 "truths": {0: True},
                 "noise": {"OBSERVE": 0.0, "HEAR": 0.0, "VERIFY": 0.0},
             },
