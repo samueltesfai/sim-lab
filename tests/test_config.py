@@ -10,7 +10,14 @@ from simlab.config import (
     expand_agent_specs,
     build_world,
 )
-from simlab.sim import ActionType, MemoryType, Snapshot
+from simlab.sim import ActionType, MemoryType, Snapshot, World
+
+
+def _build_valid_world(config_dict: dict) -> World:
+    """Build a World from a config dict after validating it."""
+    cfg = OmegaConf.create(config_dict)
+    validate_config(cfg)
+    return build_world(cfg)
 
 
 def create_test_config_file(config_dict: dict) -> str:
@@ -502,8 +509,7 @@ def test_build_world():
         },
     }
 
-    cfg = OmegaConf.create(config_dict)
-    world = build_world(cfg)
+    world = _build_valid_world(config_dict)
 
     # Check world properties
     assert len(world.agents) == 3
@@ -551,8 +557,7 @@ def test_build_world_partial_config():
         },
     }
 
-    cfg = OmegaConf.create(config_dict)
-    world = build_world(cfg)
+    world = _build_valid_world(config_dict)
 
     # Defaults should be applied
     assert len(world.agents) == 2
@@ -611,8 +616,7 @@ def test_build_world_integration():
         },
     }
 
-    cfg = OmegaConf.create(config_dict)
-    world = build_world(cfg)
+    world = _build_valid_world(config_dict)
 
     # Test that world can run steps
     initial_tick = world.tick
@@ -707,6 +711,7 @@ def _config(profiles: list[dict]) -> dict:
 def test_single_default_profile_builds():
     """A single 'default' profile builds the requested number of agents."""
     cfg = OmegaConf.create(_config([{"name": "default", "count": 4}]))
+    validate_config(cfg)
     world = build_world(cfg)
 
     assert len(world.agents) == 4
@@ -747,8 +752,7 @@ def test_profiles_expand_counts_and_params():
         },
     }
 
-    cfg = OmegaConf.create(config_dict)
-    world = build_world(cfg)
+    world = _build_valid_world(config_dict)
 
     assert len(world.agents) == 50
     assert world.profile_counts == {
@@ -773,6 +777,7 @@ def test_profile_counts_determine_total_agents():
     cfg = OmegaConf.create(
         _config([{"name": "a", "count": 20}, {"name": "b", "count": 29}])
     )
+    validate_config(cfg)
     world = build_world(cfg)
     assert len(world.agents) == 49
     assert world.profile_counts == {"a": 20, "b": 29}
@@ -824,3 +829,16 @@ def test_expand_agent_specs_single_profile():
     assert len(specs) == 3
     assert all(spec["profile_name"] == "default" for spec in specs)
     assert all(ActionType.VERIFY in spec["action_preference"] for spec in specs)
+
+
+def test_validate_config_rejects_non_integral_count():
+    """A fractional profile count is rejected instead of being floored.
+
+    ``load_config`` performs the validation at the input boundary, so the
+    build path cannot silently change the requested population size.
+    """
+    cfg = OmegaConf.create(_config([{"name": "default", "count": 2.9}]))
+    with pytest.raises(
+        ValueError, match="agent profile default count must be a positive integer"
+    ):
+        validate_config(cfg)

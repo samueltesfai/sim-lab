@@ -199,6 +199,13 @@ class Agent:
         :return: True if the agent notices the event
         :rtype: bool
         """
+        # Deterministic endpoints: avoid consuming any RNG so that the volume of
+        # observation events an agent is offered cannot shift the main RNG stream
+        # used for lazy belief initialization and action choices.
+        if self.observation_attention <= 0.0:
+            return False
+        if self.observation_attention >= 1.0:
+            return True
         return self.rng.random() < self.observation_attention
 
     def encode_observation(self, world: "World", event: ObservationEvent) -> float:

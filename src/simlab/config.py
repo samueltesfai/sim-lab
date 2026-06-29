@@ -61,6 +61,12 @@ def _validate_agent_settings(settings, *, context: str) -> None:
         raise ValueError(f"{context}.observation.bias must be in [-1, 1]")
 
 
+def _validate_profile_count(count, name: str) -> None:
+    """Reject missing, non-integral, or non-positive profile counts."""
+    if not isinstance(count, int) or isinstance(count, bool) or count <= 0:
+        raise ValueError(f"agent profile {name} count must be a positive integer")
+
+
 def validate_config(cfg: OmegaConf) -> None:
     """Perform light validation on configuration."""
     private_rate = cfg.world.observation.private_event_rate
@@ -71,9 +77,10 @@ def validate_config(cfg: OmegaConf) -> None:
     if not 0 <= global_rate <= 1:
         raise ValueError("world.observation.global_event_rate must be in [0, 1]")
 
-    # Noise validation
+    # Noise validation: only provided values are checked; missing keys are
+    # filled in with defaults by ``build_world``.
     for noise_type in ["OBSERVE", "HEAR", "VERIFY"]:
-        if cfg.world.noise[noise_type] < 0:
+        if noise_type in cfg.world.noise and cfg.world.noise[noise_type] < 0:
             raise ValueError(f"world.noise.{noise_type} must be non-negative")
 
     # Agent validation. There is exactly one canonical schema:
@@ -94,9 +101,7 @@ def validate_config(cfg: OmegaConf) -> None:
         if "name" not in profile:
             raise ValueError("each agent profile must define name")
         name = profile.name
-        count = profile.count if "count" in profile else None
-        if not isinstance(count, int) or isinstance(count, bool) or count <= 0:
-            raise ValueError(f"agent profile {name} count must be a positive integer")
+        _validate_profile_count(profile.count if "count" in profile else None, name)
         _validate_agent_settings(profile, context=f"agent.profiles.{name}")
 
     # Truths validation
@@ -172,33 +177,18 @@ def expand_agent_specs(cfg: OmegaConf) -> list[dict]:
 
     Each profile inherits ``agent.defaults`` and may override any subset of
     settings. The total number of agents is the sum of the profile counts.
+
+    This is a pure transformation; callers must ensure ``cfg`` has already
+    passed ``validate_config``.
     """
     agent_cfg = OmegaConf.to_container(cfg.agent, resolve=True)
 
-    if "defaults" not in agent_cfg:
-        raise ValueError("agent.defaults is required")
-    if "profiles" not in agent_cfg:
-        raise ValueError("agent.profiles is required")
-
-    defaults = agent_cfg["defaults"]
-    profiles = agent_cfg["profiles"]
-
-    if not profiles:
-        raise ValueError("agent.profiles must contain at least one profile")
-
     specs: list[dict] = []
-    for profile in profiles:
-        if "name" not in profile:
-            raise ValueError("each agent profile must define name")
+    for profile in agent_cfg["profiles"]:
         name = profile["name"]
-        if "count" not in profile:
-            raise ValueError(f"agent profile {name} must define count")
-        count = int(profile["count"])
-        if count <= 0:
-            raise ValueError(f"agent profile {name} count must be > 0")
-
+        count = profile["count"]
         overrides = {k: v for k, v in profile.items() if k not in {"name", "count"}}
-        merged = _deep_merge(defaults, overrides)
+        merged = _deep_merge(agent_cfg["defaults"], overrides)
         kwargs = _settings_to_agent_kwargs(merged, name)
         specs.extend(dict(kwargs) for _ in range(count))
 
@@ -206,7 +196,7 @@ def expand_agent_specs(cfg: OmegaConf) -> list[dict]:
 
 
 def build_world(cfg: OmegaConf):
-    """Build a World instance from configuration."""
+    """Build a World instance from a validated configuration."""
 
     # World noise -> enum-keyed dict.
     noise = {

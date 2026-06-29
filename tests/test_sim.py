@@ -801,6 +801,34 @@ def test_encode_observation_applies_bias():
     assert agent.encode_observation(world, event) == pytest.approx(0.6)
 
 
+def test_attention_edge_cases_do_not_perturb_belief_rng():
+    """Deterministic attention (0.0 or 1.0) consumes no RNG.
+
+    Two identically-seeded agents must lazily initialize the same belief even if
+    one of them is repeatedly offered events at a deterministic attention level.
+    This guards against observation event rates entangling with belief/action
+    randomness for the common experimental endpoints.
+    """
+    world = _build_world(1)
+    event = ObservationEvent(
+        id=0, tick=0, claim_id=0, evidence=0.5, visible_agent_ids=(0,)
+    )
+
+    always_attentive = Agent(0, rng_seed=42, observation_attention=1.0)
+    never_attentive = Agent(0, rng_seed=42, observation_attention=0.0)
+    quiet = Agent(0, rng_seed=42, observation_attention=1.0)
+
+    # Offer many events to the deterministic agents; no RNG should be consumed.
+    for _ in range(25):
+        always_attentive.notices_observation(world, event)
+        never_attentive.notices_observation(world, event)
+
+    # Lazy belief init draws from the main RNG, which deterministic attention
+    # must not touch.
+    assert always_attentive.beliefs[0] == quiet.beliefs[0]
+    assert never_attentive.beliefs[0] == quiet.beliefs[0]
+
+
 def test_learning_rate_heterogeneity_affects_update_magnitude():
     """Higher learning rate moves belief farther toward the same evidence."""
     world = _build_world(2)
