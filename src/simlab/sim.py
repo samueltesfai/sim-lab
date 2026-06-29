@@ -57,9 +57,26 @@ class Memory:
     evidence: float | None
 
 
+@dataclass(frozen=True, slots=True)
+class ObservationEvent:
+    """A world-generated observation opportunity.
+
+    The world produces these; agents may notice and encode them into memories.
+    An event carries a truth-grounded evidence signal and the agents who could
+    potentially perceive it.
+    """
+
+    id: int
+    tick: int
+    claim_id: int
+    evidence: float
+    visible_agent_ids: tuple[int, ...]
+
+
 @dataclass(slots=True)
 class Snapshot:
     tick: int  # Current simulation tick
+    observation_event_count: int  # Number of world observation events emitted this tick
     observed_ids: list[int]  # List of agent IDs that observed a claim this tick
     verified_ids: list[int]  # List of agent IDs that verified a claim this tick
     communicate_edges: list[
@@ -80,11 +97,30 @@ class Agent:
         rng_seed: int = 0,
         action_preference: dict[ActionType, float] | None = None,
         action_cost: dict[ActionType, float] | None = None,
+        profile_name: str = "default",
+        observation_attention: float = 1.0,
+        observation_bias: float = 0.0,
+        default_trust: float = 0.5,
+        learning_rate: float = 0.1,
+        observe_weight: float = 0.6,
+        hear_weight: float = 0.3,
+        verify_weight: float = 1.0,
     ):
         self.id = id
         self.rng = random.Random(rng_seed)
+        self.profile_name = profile_name
+
+        # Cognition parameters: how this kind of mind perceives and learns.
+        self.observation_attention = observation_attention  # P(notice an event)
+        self.observation_bias = observation_bias  # systematic perceptual bias
+        self.default_trust = default_trust  # trust for unseen agents
+        self.learning_rate = learning_rate  # global plasticity
+        self.observe_weight = observe_weight  # channel weight for OBSERVE
+        self.hear_weight = hear_weight  # channel weight for HEAR
+        self.verify_weight = verify_weight  # channel weight for VERIFY
+
         self.beliefs: defaultdict[int, float] = defaultdict(lambda: self.rng.random())
-        self.trust: defaultdict[int, float] = defaultdict(lambda: 0.5)
+        self.trust: defaultdict[int, float] = defaultdict(lambda: self.default_trust)
         self.memory: list[Memory] = []
         self._mem_cursor = 0  # Cursor to track memories for belief updates
         default_action_preference = {
@@ -108,48 +144,36 @@ class Agent:
         )
 
     def __repr__(self):
-        return f"Agent(id={self.id}, beliefs={dict(self.beliefs)}, trust={dict(self.trust)}, memory={len(self.memory)})"
+        return f"Agent(id={self.id}, profile={self.profile_name!r}, beliefs={dict(self.beliefs)}, trust={dict(self.trust)}, memory={len(self.memory)})"
 
     def add_memory(
         self,
         world: "World",
         memory_type: MemoryType,
+        claim_id: int,
+        evidence: float,
         source: int | None = None,
-        claim_id: int | None = None,
-        evidence: float | None = None,
     ):
         """
         Add a memory to the agent's memory list.
+
+        Memories only store already-formed evidence. Evidence is produced by
+        the world (observation/verification) or by social interaction (hearing)
+        and encoded by the agent before being stored here, so every memory
+        type requires an explicit ``claim_id`` and ``evidence``.
 
         :param self:
         :param world: The world in which the agent is adding the memory
         :type world: 'World'
         :param memory_type: The type of memory being added
         :type memory_type: MemoryType
+        :param claim_id: The ID of the claim for the memory
+        :type claim_id: int
+        :param evidence: The evidence value for the memory
+        :type evidence: float
         :param source: The ID of the source agent for the memory (if applicable)
         :type source: int | None
-        :param claim_id: The ID of the claim for the memory (if applicable)
-        :type claim_id: int | None
-        :param evidence: The evidence value for the memory (if applicable)
-        :type evidence: float | None
         """
-
-        if evidence is None:
-            match memory_type:
-                case MemoryType.OBSERVE:
-                    base = float(world.truths[claim_id])
-                    noise = world.rng.gauss(0, world.noise[MemoryType.OBSERVE])
-                case MemoryType.HEAR:
-                    base = world.get_agent(source).beliefs[claim_id]
-                    noise = world.rng.gauss(0, world.noise[MemoryType.HEAR])
-                case MemoryType.VERIFY:
-                    base = float(world.truths[claim_id])
-                    noise = world.rng.gauss(0, world.noise[MemoryType.VERIFY])
-                case _:
-                    base = 0.5
-                    noise = 0.0
-            evidence = clamp(base + noise)
-
         memory = Memory(
             id=len(self.memory),
             type=memory_type,
@@ -159,6 +183,49 @@ class Agent:
             evidence=evidence,
         )
         self.memory.append(memory)
+
+    def notices_observation(self, world: "World", event: ObservationEvent) -> bool:
+        """
+        Decide whether this agent notices an available observation event.
+
+        Attention is the probability that this kind of mind attends to an
+        observation opportunity presented by the world.
+
+        :param self:
+        :param world: The world in which the agent exists
+        :type world: 'World'
+        :param event: The observation event presented to the agent
+        :type event: ObservationEvent
+        :return: True if the agent notices the event
+        :rtype: bool
+        """
+        # Deterministic endpoints: avoid consuming any RNG so that the volume of
+        # observation events an agent is offered cannot shift the main RNG stream
+        # used for lazy belief initialization and action choices.
+        if self.observation_attention <= 0.0:
+            return False
+        if self.observation_attention >= 1.0:
+            return True
+        return self.rng.random() < self.observation_attention
+
+    def encode_observation(self, world: "World", event: ObservationEvent) -> float:
+        """
+        Encode a noticed observation event into subjective evidence.
+
+        The world already produced a truth-grounded, noisy signal. Encoding
+        applies the agent's systematic perceptual bias. (Perceptual noise is
+        intentionally not re-applied here to avoid double-counting the world's
+        observation noise.)
+
+        :param self:
+        :param world: The world in which the agent exists
+        :type world: 'World'
+        :param event: The observation event being encoded
+        :type event: ObservationEvent
+        :return: The subjectively encoded evidence value in [0, 1]
+        :rtype: float
+        """
+        return clamp(event.evidence + self.observation_bias)
 
     def _communicate(self, world: "World", target_agent_id: int, claim_id: int):
         """
@@ -200,7 +267,8 @@ class Agent:
         :param claim_id: The ID of the claim being verified
         :type claim_id: int
         """
-        self.add_memory(world, MemoryType.VERIFY, claim_id=claim_id)
+        evidence = world.generate_verification_evidence(claim_id)
+        self.add_memory(world, MemoryType.VERIFY, claim_id=claim_id, evidence=evidence)
 
     @property
     def memory_size(self) -> int:
@@ -412,25 +480,15 @@ class Agent:
                     f"Unknown action type: {action.type} for action {action}"
                 )
 
-    def update_beliefs(
-        self,
-        eta: float = 0.1,
-        w_observe: float = 0.6,
-        w_hear: float = 0.3,
-        w_verify: float = 1.0,
-    ) -> bool:
+    def update_beliefs(self) -> bool:
         """
         Update the agent's beliefs based on accumulated memories.
 
+        The effective learning rate for each memory is the agent's global
+        plasticity (``learning_rate``) scaled by a channel-specific weight, and
+        further modulated by trust for socially heard memories.
+
         :param self:
-        :param eta: Learning rate
-        :type eta: float
-        :param w_observe: Weight for observation memories
-        :type w_observe: float
-        :param w_hear: Weight for hear memories
-        :type w_hear: float
-        :param w_verify: Weight for verify memories
-        :type w_verify: float
         :return: True if any beliefs were updated, False otherwise
         :rtype: bool
         """
@@ -442,14 +500,18 @@ class Agent:
             if mem.claim_id is not None and mem.evidence is not None:
                 match mem.type:
                     case MemoryType.OBSERVE:
-                        lr = eta * w_observe
+                        lr = self.learning_rate * self.observe_weight
                     case MemoryType.VERIFY:
-                        lr = eta * w_verify
+                        lr = self.learning_rate * self.verify_weight
                     case MemoryType.HEAR:
                         if mem.source is None:
                             lr = 0.0
                         else:
-                            lr = eta * w_hear * self.trust[mem.source]
+                            lr = (
+                                self.learning_rate
+                                * self.hear_weight
+                                * self.trust[mem.source]
+                            )
                     case _:
                         lr = 0.0
 
@@ -471,7 +533,8 @@ class World:
         truths: dict[int, bool],
         rng_seed: int = 0,
         noise: dict[MemoryType, float] | None = None,
-        observation_probability: float = 0.1,
+        private_event_rate: float = 0.1,
+        global_event_rate: float = 0.0,
     ):
         self._agents = {a.id: a for a in agents}
         self.tick = 0
@@ -482,7 +545,13 @@ class World:
             MemoryType.VERIFY: 0.0,
         } | (noise or {})
         self.truths = truths
-        self.observation_probability = observation_probability
+        # private_event_rate: per-agent per-tick chance of a private observation
+        #   event visible only to that agent.
+        # global_event_rate: per-tick chance of one shared observation event
+        #   visible to all agents.
+        self.private_event_rate = private_event_rate
+        self.global_event_rate = global_event_rate
+        self._next_event_id = 0
         self.network = self._generate_dummy_network(
             # TODO: We can implement a more complex network generation mechanism here,
             # potentially based on real-world social network structures or using a
@@ -516,6 +585,14 @@ class World:
     def edges(self) -> list[tuple[int, int]]:
         return [(src, dest) for src, nei in self.network.items() for dest in nei]
 
+    @property
+    def profile_counts(self) -> dict[str, int]:
+        """Return the number of agents per profile name."""
+        counts: defaultdict[str, int] = defaultdict(int)
+        for agent in self.agents:
+            counts[agent.profile_name] += 1
+        return dict(counts)
+
     def get_agent_beliefs_snapshot(self) -> dict[int, dict[int, float]]:
         """
         Return a complete belief snapshot for all agents and all known claims.
@@ -534,24 +611,142 @@ class World:
     def get_agent(self, agent_id: int) -> Agent:
         return self._agents[agent_id]
 
-    def deliver_observation(self) -> list[int]:
+    def generate_observation_evidence(self, claim_id: int) -> float:
         """
-        Deliver observations to agents in the world.
+        Generate truth-grounded observation evidence for a claim.
+
+        Observation evidence reflects objective truth plus environmental
+        observation noise. Subjective perceptual distortion is applied later by
+        the observing agent during encoding.
+
+        :param claim_id: The ID of the claim being observed
+        :type claim_id: int
+        :return: Evidence value in [0, 1]
+        :rtype: float
+        """
+        base = float(self.truths[claim_id])
+        noise = self.rng.gauss(0, self.noise[MemoryType.OBSERVE])
+        return clamp(base + noise)
+
+    def generate_verification_evidence(self, claim_id: int) -> float:
+        """
+        Generate truth-grounded verification evidence for a claim.
+
+        :param claim_id: The ID of the claim being verified
+        :type claim_id: int
+        :return: Evidence value in [0, 1]
+        :rtype: float
+        """
+        base = float(self.truths[claim_id])
+        noise = self.rng.gauss(0, self.noise[MemoryType.VERIFY])
+        return clamp(base + noise)
+
+    def generate_heard_evidence(self, sender_id: int, claim_id: int) -> float:
+        """
+        Generate social (heard) evidence from a sender's current belief.
+
+        Heard evidence is grounded in the sender's belief plus channel noise,
+        not in objective truth.
+
+        :param sender_id: The ID of the agent the evidence originates from
+        :type sender_id: int
+        :param claim_id: The ID of the claim being communicated
+        :type claim_id: int
+        :return: Evidence value in [0, 1]
+        :rtype: float
+        """
+        base = self.get_agent(sender_id).beliefs[claim_id]
+        noise = self.rng.gauss(0, self.noise[MemoryType.HEAR])
+        return clamp(base + noise)
+
+    def generate_observation_events(self) -> list[ObservationEvent]:
+        """
+        Generate this tick's passive observation events.
+
+        Two kinds of events are emitted:
+
+        - Private events preserve the old per-agent observation behavior: each
+          agent independently has a ``private_event_rate`` chance of an
+          observation opportunity visible only to them.
+        - Global events represent shared world incidents: with a per-tick
+          ``global_event_rate`` chance, the world emits one observation event
+          visible to every agent.
 
         :param self: The world instance
         :type self: World
-        :return: List of agent IDs that received observations
+        :return: The observation events emitted this tick
+        :rtype: list[ObservationEvent]
+        """
+        events: list[ObservationEvent] = []
+
+        # Private observation events: one-agent visibility.
+        for agent in self.agents:
+            if self.rng.random() >= self.private_event_rate:
+                continue
+
+            claim_id = self.rng.choice(self.claims)
+            evidence = self.generate_observation_evidence(claim_id)
+
+            events.append(
+                ObservationEvent(
+                    id=self._next_event_id,
+                    tick=self.tick,
+                    claim_id=claim_id,
+                    evidence=evidence,
+                    visible_agent_ids=(agent.id,),
+                )
+            )
+            self._next_event_id += 1
+
+        # Global observation event: all-agent visibility.
+        if self.rng.random() < self.global_event_rate:
+            claim_id = self.rng.choice(self.claims)
+            evidence = self.generate_observation_evidence(claim_id)
+
+            events.append(
+                ObservationEvent(
+                    id=self._next_event_id,
+                    tick=self.tick,
+                    claim_id=claim_id,
+                    evidence=evidence,
+                    visible_agent_ids=tuple(agent.id for agent in self.agents),
+                )
+            )
+            self._next_event_id += 1
+
+        return events
+
+    def deliver_observation_events(self, events: list[ObservationEvent]) -> list[int]:
+        """
+        Deliver observation events to their visible agents.
+
+        Each visible agent may notice the event (per its attention) and, if so,
+        encodes it into a subjective OBSERVE memory.
+
+        :param self: The world instance
+        :type self: World
+        :param events: The observation events to deliver
+        :type events: list[ObservationEvent]
+        :return: List of agent IDs that formed an observation memory
         :rtype: list[int]
         """
-        observed_agents = []
+        observed_ids: list[int] = []
 
-        for agent in self.agents:
-            if self.rng.random() < self.observation_probability:
-                claim_id = self.rng.choice(self.claims)
-                agent.add_memory(self, MemoryType.OBSERVE, claim_id=claim_id)
-                observed_agents.append(agent.id)
+        for event in events:
+            for agent_id in event.visible_agent_ids:
+                agent = self.get_agent(agent_id)
+                if not agent.notices_observation(self, event):
+                    continue
+                evidence = agent.encode_observation(self, event)
+                agent.add_memory(
+                    self,
+                    MemoryType.OBSERVE,
+                    claim_id=event.claim_id,
+                    evidence=evidence,
+                )
+                observed_ids.append(agent.id)
 
-        return observed_agents
+        return observed_ids
 
     def deliver_communicate(self, sender_id: int, receiver_id: int, claim_id: int):
         """
@@ -570,11 +765,13 @@ class World:
         :type receiver_id: int
         :type claim_id: int
         """
+        evidence = self.generate_heard_evidence(sender_id, claim_id)
         self.get_agent(receiver_id).add_memory(
             self,
             MemoryType.HEAR,
             source=sender_id,
             claim_id=claim_id,
+            evidence=evidence,
         )
 
     def deliver_broadcast(self, sender_id: int, claim_id: int):
@@ -591,11 +788,13 @@ class World:
         :type claim_id: int
         """
         for receiver_id in self.network[sender_id]:
+            evidence = self.generate_heard_evidence(sender_id, claim_id)
             self.get_agent(receiver_id).add_memory(
                 self,
                 MemoryType.HEAR,
                 source=sender_id,
                 claim_id=claim_id,
+                evidence=evidence,
             )
 
     def step(self) -> Snapshot:
@@ -609,7 +808,8 @@ class World:
         :return: The snapshot of the world after the step
         :rtype: Snapshot
         """
-        observed_ids = self.deliver_observation()
+        observation_events = self.generate_observation_events()
+        observed_ids = self.deliver_observation_events(observation_events)
         verified_ids: list[int] = []
         communicate_edges: list[tuple[int, int]] = []
         broadcast_edges: list[tuple[int, int]] = []
@@ -639,6 +839,7 @@ class World:
 
         snapshot = Snapshot(
             tick=self.tick,
+            observation_event_count=len(observation_events),
             observed_ids=observed_ids,
             verified_ids=verified_ids,
             communicate_edges=communicate_edges,

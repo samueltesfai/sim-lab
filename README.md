@@ -47,62 +47,27 @@ The visualization system renders the social network in real time, allowing you t
 ### 4. **Configuration**
 Simulation scenarios are defined in `configs/` and loaded through `config.py`.
 
-Current example configs include:
-
-- `configs/default.yaml`
-- `configs/high_noise.yaml`
-
-See the [model documentation](docs/model.md) for details on the simulation design.
+See the [model documentation](docs/model.md) for the simulation design, and the
+[configuration reference](docs/config.md) for the YAML schema and CLI options.
 
 ---
 
 ## Getting Started
 
-### 1. **Set Up the Environment**
-Install the required dependencies using uv:
+Install dependencies and run:
 
 ```bash
-uv sync
+pip install -e .
+python -m simlab
 ```
 
-### 2. Run the Simulation
-Run the simulation with visualization:
+Run tests:
 
 ```bash
-uv run python -m simlab
+pytest
 ```
 
-Run a different scenario:
-
-```bash
-uv run python -m simlab --config configs/high_noise.yaml
-```
-
-Adjust runtime/view parameters (use `-h` for help):
-
-```bash
-uv run python -m simlab --config configs/default.yaml --steps 1000 --pause-time 0.05
-```
-
-### 3. Telemetry Options
-Control logging frequency:
-
-```bash
-uv run python -m simlab --log-every 5
-```
-
-Export telemetry after the run:
-
-```bash
-uv run python -m simlab --export-telemetry-csv output.csv
-uv run python -m simlab --export-telemetry-jsonl output.jsonl
-```
-
-### 4. Run Tests
-
-```bash
-uv run pytest
-```
+Pass `-h` for the full list of CLI flags.
 
 ---
 
@@ -113,6 +78,5 @@ Planned directions for the project include:
 - Adding more scenario presets and config-driven experiments
 - Improving telemetry metrics for action selection and belief alignment
 - Writing notebook-based case studies for specific simulation runs
-- Exploring heterogeneous agent profiles and alternative network structures
 - Extending the decision model toward explicit utility or expected utility
 - Investigating richer trust dynamics and misinformation behaviors
