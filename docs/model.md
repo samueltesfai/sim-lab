@@ -1,49 +1,49 @@
- # Simulation Model Design
+# Simulation Model
+
+This document describes the conceptual model implemented by the simulation
+kernel in `sim.py`: how the world, agents, events, memories, and beliefs fit
+together, and what happens during a tick.
+
+For how to *configure* a scenario (the YAML schema, defaults, validation rules,
+and CLI), see [`docs/config.md`](config.md).
 
 ## Table of Contents
 
-- [Simulation Model Design](#simulation-model-design)
+- [Simulation Model](#simulation-model)
   - [Table of Contents](#table-of-contents)
   - [Overview](#overview)
-  - [Core Concepts](#core-concepts)
+  - [Core Abstractions](#core-abstractions)
+    - [World](#world)
+    - [Agents](#agents)
     - [Actions](#actions)
+    - [World Events](#world-events)
     - [Memories](#memories)
-    - [World Events vs Memories](#world-events-vs-memories)
-  - [State Representations](#state-representations)
     - [Beliefs](#beliefs)
     - [Trust](#trust)
     - [Network](#network)
   - [Information Channels](#information-channels)
-    - [1. Observation (`MemoryType.OBSERVE`)](#1-observation-memorytypeobserve)
-    - [2. Verification (`ActionType.VERIFY` -\> `MemoryType.VERIFY`)](#2-verification-actiontypeverify---memorytypeverify)
-    - [3. Hearing (`MemoryType.HEAR`)](#3-hearing-memorytypehear)
-  - [Agent Action Model](#agent-action-model)
-    - [Candidate Action Generation](#candidate-action-generation)
-    - [Action Scoring](#action-scoring)
-      - [Helper quantities](#helper-quantities)
-      - [Disagreement](#disagreement)
-      - [Current scoring rules](#current-scoring-rules)
-    - [Action Preferences and Costs](#action-preferences-and-costs)
-    - [Agent Profiles](#agent-profiles)
-  - [Belief Update Rule](#belief-update-rule)
-    - [Memory Backlog](#memory-backlog)
-    - [Update Equation](#update-equation)
-    - [Effective Learning Rates](#effective-learning-rates)
-    - [Current Defaults](#current-defaults)
-  - [World Tick Semantics](#world-tick-semantics)
-    - [Observation Phase](#observation-phase)
-    - [Action Phase](#action-phase)
-    - [Update Phase](#update-phase)
-    - [Snapshot Phase](#snapshot-phase)
-  - [Telemetry and Measurement](#telemetry-and-measurement)
+    - [Observation](#observation)
+    - [Verification](#verification)
+    - [Hearing](#hearing)
+  - [Agent Decision Model](#agent-decision-model)
+    - [Candidate actions](#candidate-actions)
+    - [Action scoring](#action-scoring)
+    - [Preferences and costs](#preferences-and-costs)
+  - [Belief Update Model](#belief-update-model)
+    - [Memory backlog](#memory-backlog)
+    - [Update equation](#update-equation)
+    - [Learning-rate calculation](#learning-rate-calculation)
+  - [Tick Lifecycle](#tick-lifecycle)
+  - [Telemetry Boundary](#telemetry-boundary)
   - [Current Model Behavior](#current-model-behavior)
   - [Current Limitations](#current-limitations)
 
 ## Overview
 
-This document describes the current simulation kernel implemented in `sim.py`.
-
-The model is a discrete-time, agent-based simulation of belief dynamics on a directed social network. Agents hold beliefs about claims, accumulate epistemic memories, choose actions based on simple heuristics, and update beliefs from new memories over time.
+The model is a discrete-time, agent-based simulation of belief dynamics on a
+directed social network. Agents hold beliefs about claims, accumulate epistemic
+memories, choose actions based on simple heuristics, and update beliefs from new
+memories over time.
 
 At a high level, the model combines three information channels:
 
@@ -51,11 +51,42 @@ At a high level, the model combines three information channels:
 2. **Verification**: active, agent-chosen truth-checking
 3. **Hearing**: social transmission from other agents through communication or broadcast
 
-The current implementation provides a configurable simulation core for exploring information diffusion, belief updating, and action selection in networked populations.
+The implementation provides a configurable core for exploring information
+diffusion, belief updating, and action selection in networked populations.
 
 ---
 
-## Core Concepts
+## Core Abstractions
+
+### World
+
+The `World` is the environment shared by all agents. It owns:
+
+- the ground-truth value of each claim (`truths`)
+- per-channel noise levels (`noise`)
+- the directed social `network`
+- the observation event rates (`private_event_rate`, `global_event_rate`)
+- the collection of agents
+
+The world also drives time: each call to `World.step()` advances the simulation
+by one tick (see [Tick Lifecycle](#tick-lifecycle)). The world is the only thing
+with access to objective truth; agents only ever see noisy, channel-mediated
+signals derived from it.
+
+### Agents
+
+An `Agent` is a single mind in the population. Each agent carries its own:
+
+- `beliefs` about claims and `trust` toward other agents
+- a `memory` list of epistemic inputs
+- cognition parameters governing perception and learning
+- action parameters governing decision-making
+
+Cognition and action parameters are **per agent**, so a single run can mix
+several agent types (e.g. attentive, distracted, skeptical). These parameters are
+construction-time inputs supplied by configuration; once built, each agent
+carries its own copy. See [Agent Profiles](#preferences-and-costs) below and the
+[config reference](config.md) for the YAML schema.
 
 ### Actions
 
@@ -68,15 +99,66 @@ Actions represent intentional decisions available to agents during a tick.
 - `COMMUNICATE`
 - `BROADCAST`
 
-These are **decision-level constructs**. They represent what an agent is trying to do during a tick.
+These are **decision-level constructs**: they represent what an agent is trying
+to do during a tick.
 
 An `Action` contains:
 
 - `type: ActionType`
-- `claim_id: int | None`
-- `target_agent_id: int | None`
+- `claim_id: int | None` — the claim the action concerns; required for all
+  non-idle actions
+- `target_agent_id: int | None` — the recipient of a `COMMUNICATE` action;
+  not applicable to the other action types
 
-Validation is performed in `Action.__post_init__()` to ensure action arguments are well-formed.
+Every action that isn't `IDLE` is therefore always in reference to either a
+world claim, a specific target agent, or both. The current set is intentionally
+minimal — it covers the key epistemic behaviors (truth-checking, passive
+exposure, direct and broadcast communication) well enough for initial
+experimentation, and is expected to grow as the model matures.
+
+### World Events
+
+World events represent external conditions or signals generated by the
+environment. They are **not** themselves memories and do **not** directly update
+beliefs.
+
+An `ObservationEvent` contains:
+
+- `id`: monotonically increasing event id
+- `tick`: world tick at which the event was emitted
+- `claim_id`: claim the event concerns
+- `evidence`: truth-grounded, noisy signal value in `[0, 1]`
+- `visible_agent_ids`: the agents who could potentially perceive the event
+
+Agents may notice world events depending on their attention parameters. Noticed
+events are encoded into subjective memories, potentially with a systematic
+perceptual bias. Belief updates operate over memories, not directly over world
+events. This is the central separation in the model:
+
+```text
+World produces signals (events).
+Agents attend to signals (attention).
+Agents encode signals as memories (perception).
+Agents update beliefs from memories (learning).
+```
+
+The kernel emits two visibility patterns today:
+
+- **private events**, each visible to a single agent
+- **global events**, visible to every agent
+
+Other wider-reaching events (localized clusters, shocks, campaigns) are deferred
+to future work.
+
+The strict separation between world events and memories is also intentionally
+inspired by how belief formation works in practice: people are not directly
+shaped by objective external events. The same incident passes through each
+observer's own attentional and perceptual filter before becoming an internal
+representation they reason from. Two agents exposed to the same global event can
+walk away with different encoded memories — and therefore different belief
+updates — purely because of differences in bias. This is the mechanism the model
+uses to represent the everyday reality that people can witness the same thing and
+come to different conclusions.
 
 ### Memories
 
@@ -88,7 +170,8 @@ Memories represent epistemic inputs that may later affect beliefs.
 - `VERIFY`
 - `HEAR`
 
-These are **evidence-level constructs**. They represent the source/channel of information that may later affect beliefs.
+These are **evidence-level constructs**: they represent the source/channel of
+information that may later affect beliefs.
 
 A `Memory` contains:
 
@@ -99,34 +182,10 @@ A `Memory` contains:
 - `claim_id`: claim the memory concerns
 - `evidence`: scalar support value in `[0, 1]`
 
-### World Events vs Memories
-
-World events represent external conditions or signals generated by the environment. They are **not** themselves memories and do **not** directly update beliefs.
-
-An `ObservationEvent` contains:
-
-- `id`: monotonically increasing event id
-- `tick`: world tick at which the event was emitted
-- `claim_id`: claim the event concerns
-- `evidence`: truth-grounded, noisy signal value in `[0, 1]`
-- `visible_agent_ids`: the agents who could potentially perceive the event
-
-Agents may notice world events depending on their attention parameters. Noticed events are encoded into subjective memories, potentially with a systematic perceptual bias. Belief updates operate over memories, not directly over world events.
-
-This makes the distinction explicit:
-
-```text
-World produces signals (events).
-Agents attend to signals (attention).
-Agents encode signals as memories (perception).
-Agents update beliefs from memories (learning).
-```
-
-The current kernel emits only individual events (each visible to a single agent via `visible_agent_ids`). Wider-reaching events (localized clusters, shocks, broadcasts) are deferred to future work.
-
----
-
-## State Representations
+Memories store already-formed evidence. Evidence is produced by the world
+(observation/verification) or by social interaction (hearing) and encoded by the
+agent before being stored, so every memory carries an explicit `claim_id` and
+`evidence`.
 
 ### Beliefs
 
@@ -142,9 +201,9 @@ Beliefs are stored as:
 self.beliefs: defaultdict[int, float]
 ```
 
-Unseen claims default to a random value in `[0, 1]` using the agent's private RNG.
-
-This produces heterogeneous initial beliefs without requiring explicit initialization logic.
+Unseen claims default to a random value in `[0, 1]` using the agent's private
+RNG. This produces heterogeneous initial beliefs without explicit initialization
+logic.
 
 ### Trust
 
@@ -154,9 +213,11 @@ Each agent maintains a trust value for other agents:
 self.trust: defaultdict[int, float]
 ```
 
-Trust defaults to `0.5` for any unseen other agent.
+Trust defaults to the agent's `S` for any unseen other agent.
 
-Trust currently affects only social hearing (`MemoryType.HEAR`) during belief updates. In the current model, trust controls how much weight a socially received memory has in the learning rule.
+Trust currently affects only social hearing (`MemoryType.HEAR`) during belief
+updates: it controls how much weight a socially received memory has in the
+learning rule.
 
 ### Network
 
@@ -166,7 +227,8 @@ The world maintains a directed social graph:
 self.network: dict[int, list[int]]
 ```
 
-If `j` appears in `network[i]`, then agent `i` can directly send information to agent `j`.
+If `j` appears in `network[i]`, then agent `i` can directly send information to
+agent `j`.
 
 The current network generator is intentionally simple:
 
@@ -181,14 +243,20 @@ This is a placeholder topology intended for prototyping.
 
 ## Information Channels
 
-### 1. Observation (`MemoryType.OBSERVE`)
+### Observation
 
-Observation is **world-driven**, not chosen as an intentional action. It is now modeled as a two-stage pipeline: the world emits observation *events*, and agents may notice and encode them.
+Observation is **world-driven**, not chosen as an intentional action. It is
+modeled as a two-stage pipeline: the world emits observation *events*, and
+agents may notice and encode them.
 
-**Stage 1 — world emits events.** Each tick, the world emits two kinds of observation events, each carrying a set of `visible_agent_ids`:
+**Stage 1 — world emits events.** Each tick, the world emits two kinds of
+observation events, each carrying a set of `visible_agent_ids`:
 
-- **Private events** preserve the old per-agent behavior: each agent independently gets a private observation opportunity with probability `world.private_event_rate` (a *per-agent per-tick* rate), visible only to that agent.
-- **Global events** represent shared world incidents: with per-tick probability `world.global_event_rate`, the world emits one event visible to *every* agent.
+- **Private events** preserve per-agent behavior: each agent independently gets
+  a private observation opportunity with probability `world.private_event_rate`
+  (a *per-agent per-tick* rate), visible only to that agent.
+- **Global events** represent shared world incidents: with per-tick probability
+  `world.global_event_rate`, the world emits one event visible to *every* agent.
 
 Event evidence is grounded in objective truth plus observation noise:
 
@@ -198,31 +266,39 @@ noise = world.rng.gauss(0, world.noise[MemoryType.OBSERVE])
 evidence = clamp(base + noise)
 ```
 
-**Stage 2 — agents notice and encode.** Each visible agent independently decides whether it notices the event (with probability `observation_attention`) and, if so, encodes it into a subjective `OBSERVE` memory by applying its perceptual bias:
+**Stage 2 — agents notice and encode.** Each visible agent independently decides
+whether it notices the event (with probability `observation_attention`) and, if
+so, encodes it into a subjective `OBSERVE` memory by applying its perceptual
+bias:
 
 ```python
 encoded = clamp(event.evidence + agent.observation_bias)
 ```
 
-A global event may be visible to all agents but is not necessarily noticed by all of them. Perceptual noise is intentionally applied only once (during event generation) to avoid double-counting observation noise.
+A global event may be visible to all agents but is not necessarily noticed by all
+of them. Perceptual noise is applied only once (during event generation) to
+avoid double-counting observation noise.
 
-The expected number of observation memories per tick from private events is therefore:
+The expected number of observation memories per tick from private events is:
 
 ```text
 (number of agents) × private_event_rate × observation_attention
 ```
 
 Interpretation:
+
 - observation models ambient, passive exposure to truth-relevant evidence
-- the world controls how often opportunities occur; the agent controls how often this kind of mind notices them
+- the world controls how often opportunities occur; the agent controls how often
+  this kind of mind notices them
 - observation is less targeted than verification
 - observation provides a truth-seeking force in the simulation
 
-### 2. Verification (`ActionType.VERIFY` -> `MemoryType.VERIFY`)
+### Verification
 
 Verification is an **intentional action** chosen by the agent.
 
-When an agent verifies a claim, it generates a new verification memory using objective truth plus verification noise:
+When an agent verifies a claim, it generates a new verification memory using
+objective truth plus verification noise:
 
 ```python
 base = float(world.truths[claim_id])
@@ -231,13 +307,15 @@ evidence = clamp(base + noise)
 ```
 
 Interpretation:
+
 - verification is an active attempt to truth-check a claim
 - it is usually modeled as more reliable than passive observation
 - it carries a higher action cost than idle and targeted communication
 
-### 3. Hearing (`MemoryType.HEAR`)
+### Hearing
 
-Hearing is generated when one agent communicates or broadcasts a claim to another.
+Hearing is generated when one agent communicates or broadcasts a claim to
+another.
 
 Heard evidence is based on the sender's current belief plus social noise:
 
@@ -248,17 +326,20 @@ evidence = clamp(base + noise)
 ```
 
 Interpretation:
+
 - social transmission reflects what the sender currently believes
 - the model does not yet include intentional deception
-- misinformation can still arise from noisy perception, noisy communication, and incorrect prior beliefs
+- misinformation can still arise from noisy perception, noisy communication, and
+  incorrect prior beliefs
 
 ---
 
-## Agent Action Model
+## Agent Decision Model
 
-Each agent evaluates candidate actions and selects the one with the highest score.
+Each agent evaluates candidate actions and selects the one with the highest
+score.
 
-### Candidate Action Generation
+### Candidate actions
 
 For each tick, an agent considers:
 
@@ -267,32 +348,23 @@ For each tick, an agent considers:
 - `BROADCAST(claim_id)` for each claim
 - `COMMUNICATE(claim_id, neighbor_id)` for each claim and each outgoing neighbor
 
-This is implemented in:
+This is implemented in `generate_candidate_actions(world)`.
 
-```python
-generate_candidate_actions(world)
-```
+### Action scoring
 
-### Action Scoring
+Each action is scored heuristically using the agent's preferences, action costs,
+and current epistemic state.
 
-Each action is scored heuristically using the agent's preferences, action costs, and current epistemic state.
-
-#### Helper quantities
-
-For a claim belief `b`:
+**Helper quantities.** For a claim belief `b`:
 
 ```python
 confidence = abs(b - 0.5) * 2
 uncertainty = 1.0 - confidence
 ```
 
-These satisfy:
-- `confidence in [0, 1]`
-- `uncertainty in [0, 1]`
+Both lie in `[0, 1]`.
 
-#### Disagreement
-
-For claim `c` and neighbor `j`:
+**Disagreement.** For claim `c` and neighbor `j`:
 
 ```python
 disagreement(c, j) = abs(self.beliefs[c] - neighbor.beliefs[c])
@@ -300,39 +372,31 @@ disagreement(c, j) = abs(self.beliefs[c] - neighbor.beliefs[c])
 
 Local disagreement is the mean disagreement over outgoing neighbors.
 
-#### Current scoring rules
+**Current scoring rules.**
 
-- **VERIFY**
-  - high score when uncertainty is high
-  - formula:
-    ```python
-    preference * uncertainty - cost
-    ```
+- **VERIFY** — high score when uncertainty is high:
+  ```python
+  preference * uncertainty - cost
+  ```
+- **COMMUNICATE** — high score when the agent is confident and the target
+  disagrees:
+  ```python
+  preference * confidence * disagreement - cost
+  ```
+- **BROADCAST** — high score when the agent is confident and many local neighbors
+  disagree:
+  ```python
+  preference * confidence * local_disagreement - cost
+  ```
+- **IDLE** — baseline fallback:
+  ```python
+  preference - cost
+  ```
 
-- **COMMUNICATE**
-  - high score when the agent is confident and the target disagrees
-  - formula:
-    ```python
-    preference * confidence * disagreement - cost
-    ```
+This is not yet formal expected utility. It is a **one-step heuristic
+desirability model**.
 
-- **BROADCAST**
-  - high score when the agent is confident and many local neighbors disagree
-  - formula:
-    ```python
-    preference * confidence * local_disagreement - cost
-    ```
-
-- **IDLE**
-  - baseline fallback
-  - formula:
-    ```python
-    preference - cost
-    ```
-
-This is not yet formal expected utility. It is a **one-step heuristic desirability model**.
-
-### Action Preferences and Costs
+### Preferences and costs
 
 Agents store per-action parameters:
 
@@ -341,9 +405,11 @@ self.action_preference: dict[ActionType, float]
 self.action_cost: dict[ActionType, float]
 ```
 
-These parameters allow heterogeneous behavioral styles without changing the action selection procedure.
+These allow heterogeneous behavioral styles without changing the action
+selection procedure.
 
-In addition to action parameters, each agent carries cognition parameters that govern perception and learning:
+In addition to action parameters, each agent carries cognition parameters that
+govern perception and learning:
 
 ```python
 self.profile_name: str            # which agent type this is
@@ -356,73 +422,18 @@ self.hear_weight: float           # channel weight for HEAR
 self.verify_weight: float         # channel weight for VERIFY
 ```
 
-These are populated from configuration via agent **profiles** (see below), which let a single run mix several agent types (e.g. attentive, distracted, skeptical).
-
-Default values are currently:
-
-```python
-default_action_preference = {
-    ActionType.IDLE: 0.0,
-    ActionType.VERIFY: 0.9,
-    ActionType.COMMUNICATE: 0.7,
-    ActionType.BROADCAST: 0.5,
-}
-
-default_action_cost = {
-    ActionType.IDLE: 0.0,
-    ActionType.VERIFY: 0.35,
-    ActionType.COMMUNICATE: 0.15,
-    ActionType.BROADCAST: 0.30,
-}
-```
-
-These should be understood as a baseline prototype regime, not a final calibrated model.
-
-### Agent Profiles
-
-Agent heterogeneity is configured through a single canonical schema with exactly two pieces:
-
-- `agent.defaults`: the baseline cognitive/action parameters shared by every agent.
-- `agent.profiles`: a list of concrete subpopulations. Each profile has a `name`, a `count`, and any subset of overrides (`observation`, `trust`, `learning`, `action_preference`, `action_cost`). Profile overrides are deep-merged onto the defaults.
-
-Both `agent.defaults` and `agent.profiles` are required, and `agent.profiles` must contain at least one profile (each with `count > 0`). The total number of agents is the sum of the profile counts — there is no separate `world.num_agents` and no flat agent form; counts live with the agents they describe. The homogeneous case is just a single profile:
-
-```yaml
-agent:
-  defaults: { ... }
-  profiles:
-    - name: default
-      count: 50
-```
-
-A heterogeneous example:
-
-```yaml
-agent:
-  defaults:
-    observation: { attention: 1.0, bias: 0.0 }
-    trust: { default: 0.5 }
-    learning: { rate: 0.1, observe_weight: 0.6, hear_weight: 0.3, verify_weight: 1.0 }
-    action_preference: { IDLE: 0.0, VERIFY: 0.9, COMMUNICATE: 0.7, BROADCAST: 0.5 }
-    action_cost: { IDLE: 0.0, VERIFY: 0.35, COMMUNICATE: 0.15, BROADCAST: 0.30 }
-  profiles:
-    - name: attentive
-      count: 20
-      observation: { attention: 0.95 }
-    - name: distracted
-      count: 20
-      observation: { attention: 0.35 }
-    - name: skeptical
-      count: 10
-      trust: { default: 0.25 }
-      learning: { hear_weight: 0.15, verify_weight: 1.2 }
-```
-
-`World.profile_counts` reports the realized number of agents per profile, which is useful for verifying expansion and for later per-profile analysis.
+**Agent profiles.** Agents may be instantiated from different profiles. Profiles
+define cognition, trust, learning, and action-selection parameters for
+subpopulations, letting a single simulation mix agent types such as attentive,
+distracted, or skeptical agents. The model treats profiles as construction-time
+parameters; once built, each agent carries its own parameters. `World.profile_counts`
+reports the realized number of agents per profile, which is useful for verifying
+expansion and for per-profile analysis. See [`docs/config.md`](config.md) for the
+YAML schema and default values.
 
 ---
 
-## Belief Update Rule
+## Belief Update Model
 
 Beliefs are not updated immediately when events occur. Instead:
 
@@ -430,11 +441,15 @@ Beliefs are not updated immediately when events occur. Instead:
 2. memories are stored in the agent
 3. the agent periodically processes unprocessed memories
 
-This separation is a core design choice. It is also loosely inspired by real models of cognition, where humans do not update their internal understanding directly from raw events alone, but instead form internal representations of those events based on their subjective perspective. 
+This separation is a core design choice. It is loosely inspired by models of
+cognition, where humans do not update their internal understanding directly from
+raw events alone, but instead form internal representations of those events based
+on their subjective perspective. In this model, memories play that role: they are
+the agent's internal record of what was experienced, heard, or verified, and
+belief updates operate over those stored representations rather than directly over
+the world.
 
-In this model, memories play that role: they are the agent’s internal record of what was experienced, heard, or verified, and belief updates operate over those stored representations rather than directly over the world.
-
-### Memory Backlog
+### Memory backlog
 
 Each agent tracks a memory cursor:
 
@@ -444,9 +459,10 @@ self._mem_cursor
 
 This indicates the first unprocessed memory.
 
-### Update Equation
+### Update equation
 
-For a memory with evidence `e`, claim belief `b`, and effective learning rate `lr`:
+For a memory with evidence `e`, claim belief `b`, and effective learning rate
+`lr`:
 
 ```python
 b_new = b + lr * (e - b)
@@ -454,9 +470,11 @@ b_new = b + lr * (e - b)
 
 This is an exponential-moving-average style update toward the new evidence.
 
-### Effective Learning Rates
+### Learning-rate calculation
 
-Learning parameters are stored **per agent**, so different profiles can process the same evidence differently. Effective learning rate depends on memory type:
+Learning parameters are stored **per agent**, so different profiles can process
+the same evidence differently. The effective learning rate depends on memory
+type:
 
 - `OBSERVE`: `learning_rate * observe_weight`
 - `VERIFY`: `learning_rate * verify_weight`
@@ -464,89 +482,56 @@ Learning parameters are stored **per agent**, so different profiles can process 
 
 Then clamped to `[0, 1]`.
 
-Here `learning_rate` is the agent's global plasticity, the channel weights are credibility/weighting per source type, and `trust[source]` modulates social hearing. Unseen sources fall back to the agent's `default_trust`.
+Here `learning_rate` is the agent's global plasticity, the channel weights are
+credibility/weighting per source type, and `trust[source]` modulates social
+hearing. Unseen sources fall back to the agent's `default_trust`.
 
-### Current Defaults
-
-```python
-learning_rate = 0.1
-observe_weight = 0.6
-hear_weight = 0.3
-verify_weight = 1.0
-default_trust = 0.5
-```
-
-Interpretation:
-- verification is strongest
-- observation is moderate
-- social hearing is weakest and trust-modulated
+With the default parameters (see [config.md](config.md)) verification is
+strongest, observation is moderate, and social hearing is weakest and
+trust-modulated.
 
 ---
 
-## World Tick Semantics
+## Tick Lifecycle
 
-A single tick of `World.step()` currently proceeds as follows:
+A single tick of `World.step()` proceeds as follows:
 
-1. generate passive observation events (`generate_observation_events`)
-2. deliver observable events to agents according to visibility and attention (`deliver_observation_events`)
-3. let each agent choose and execute an intentional action
-4. update beliefs for all agents with pending memories
-5. snapshot full beliefs for all agents and claims
-6. advance `tick`
-7. return `Snapshot`
+1. **Generate world events** — `generate_observation_events()` emits private
+   per-agent events plus an optional global event.
+2. **Deliver visible events** — `deliver_observation_events()` offers each event
+   to its `visible_agent_ids`; agents that notice it (per `observation_attention`)
+   encode it (per `observation_bias`) into an `OBSERVE` memory.
+3. **Choose and execute actions** — each agent selects one action via
+   `choose_action(world)` and executes it via `act(world, action)`. All new
+   memories for the tick are accumulated before any belief updating occurs.
+4. **Process memories** — each agent processes its pending memories and updates
+   beliefs (see [Belief Update Model](#belief-update-model)).
+5. **Snapshot** — the world produces a `Snapshot` and advances `tick`.
 
-### Observation Phase
-
-The world first emits observation events (private per-agent events plus an optional global event), then delivers them to agents who may notice and encode them:
-
-```python
-events = self.generate_observation_events()
-observed_ids = self.deliver_observation_events(events)
-```
-
-Each agent independently gets a private observation opportunity with probability `world.private_event_rate`, and the world emits a shared global event with probability `world.global_event_rate`. Whether a visible agent forms a memory additionally depends on its `observation_attention`. See the Observation channel section for details.
-
-### Action Phase
-
-Each agent selects one action via:
-
-```python
-choose_action(world)
-```
-
-and executes it via:
-
-```python
-act(world, action)
-```
-
-### Update Phase
-
-After all new memories for the tick have been created, each agent processes any pending memories. This means all epistemic inputs for the tick are accumulated before belief updating occurs.
-
-### Snapshot Phase
-
-After beliefs are updated, the world produces a `Snapshot` containing:
+The `Snapshot` contains:
 
 - the processed tick
 - the number of observation events emitted this tick
 - observed agent IDs
 - verified agent IDs
-- communication edges
-- broadcast edges
+- communication edges and broadcast edges
 - full belief state for all agents and claims
 - agent memory sizes
 - number of agent belief updates
 
-This snapshot is used by visualization and telemetry, but it does not affect simulation behavior.
+The snapshot is consumed by visualization and telemetry but does not affect
+simulation behavior.
 
-## Telemetry and Measurement
+---
 
-Telemetry is not part of the agent decision model. It does not affect agent behavior, memory formation, belief updates, or world dynamics.
+## Telemetry Boundary
 
-After each call to `World.step()`, the returned `Snapshot` can be passed to `Telemetry`, which computes compact per-step metrics for analysis and experiment tracking.
+Telemetry is not part of the agent decision model. It does not affect agent
+behavior, memory formation, belief updates, or world dynamics.
 
-Current telemetry focuses on:
+After each call to `World.step()`, the returned `Snapshot` can be passed to
+`Telemetry`, which computes compact per-step metrics for analysis and experiment
+tracking. Current telemetry focuses on:
 
 - global belief distribution across all agents and claims
 - belief movement between consecutive snapshots
@@ -554,9 +539,10 @@ Current telemetry focuses on:
 - event counts for observations, verifications, communications, and broadcasts
 - step runtime, when measured by the caller
 
-The simulation kernel remains responsible for producing state transitions. Telemetry is responsible for measuring those transitions.
-
-This separation is intentional: future experiments can compare scheduling strategies, delayed updates, budget constraints, or model-in-the-loop policies without changing the core belief update semantics.
+The simulation kernel remains responsible for producing state transitions;
+telemetry is responsible for measuring them. This separation lets future
+experiments compare scheduling strategies, delayed updates, budget constraints,
+or model-in-the-loop policies without changing the core belief update semantics.
 
 ---
 
@@ -567,15 +553,18 @@ Qualitatively, the current system exhibits the following patterns:
 - agents tend to verify when uncertain
 - agents tend to communicate when confident and neighbors disagree
 - passive observations provide a truth-seeking background process
-- in many runs, the system settles into a low-incentive equilibrium where most agents choose `IDLE`
+- in many runs, the system settles into a low-incentive equilibrium where most
+  agents choose `IDLE`
 
 This appears to happen when:
 
 - uncertainty becomes low enough that verification is not worth the cost
-- local disagreement becomes low enough that communication/broadcast are not worth the cost
+- local disagreement becomes low enough that communication/broadcast are not
+  worth the cost
 - residual noise prevents perfect convergence
 
-This should be understood as an emergent equilibrium of the current heuristic scoring model, not as a guaranteed or intended property of all future versions.
+This is an emergent equilibrium of the current heuristic scoring model, not a
+guaranteed or intended property of all future versions.
 
 ---
 
@@ -591,11 +580,13 @@ Not yet modeled:
 - community-structured graphs
 - multi-step planning or expected utility
 - claim salience or per-claim attention allocation
-- wider-reaching world events (localized clusters, shocks, broadcasts, campaigns)
+- wider-reaching world events (localized clusters, shocks, campaigns)
 - agent-specific perceptual noise (only systematic bias is modeled today)
 - memory decay or forgetting
 - action budgets / cooldowns / fatigue
 - telemetry is currently global rather than per-claim or per-agent
-- no explicit runtime constraints such as latency, compute budgets, or scheduling policies
+- no explicit runtime constraints such as latency, compute budgets, or scheduling
+  policies
 
-These are candidate future extensions, but were deferred in favor of stabilizing the current abstraction layer.
+These are candidate future extensions, but were deferred in favor of stabilizing
+the current abstraction layer.
