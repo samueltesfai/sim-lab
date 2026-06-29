@@ -760,6 +760,32 @@ def test_global_event_attention_one_all_observe():
     assert len(snapshot.observed_ids) == len(agents)
 
 
+def test_private_and_global_events_both_observed_in_one_tick():
+    """An agent hit by both a private and a global event observes each separately.
+
+    Events are distinct world signals, so they are not deduplicated: with both
+    rates and attention at 1.0, every agent forms two OBSERVE memories and
+    appears twice in observed_ids in the same tick.
+    """
+    agents = [Agent(i, rng_seed=i, observation_attention=1.0) for i in range(5)]
+    world = World(
+        agents=agents,
+        truths={0: True},
+        rng_seed=1,
+        private_event_rate=1.0,
+        global_event_rate=1.0,
+    )
+
+    snapshot = world.step()
+
+    # One private event per agent plus a single global event.
+    assert snapshot.observation_event_count == len(agents) + 1
+    # Each agent observes twice (private + global).
+    assert len(snapshot.observed_ids) == 2 * len(agents)
+    for agent in agents:
+        assert snapshot.observed_ids.count(agent.id) == 2
+
+
 def test_encode_observation_applies_bias():
     """encode_observation shifts evidence by the agent's perceptual bias."""
     world = _build_world(1)

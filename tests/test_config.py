@@ -177,6 +177,86 @@ def test_validate_config_invalid_observation_rate():
         validate_config(cfg)
 
 
+def test_validate_config_invalid_global_event_rate():
+    """Test config validation with out-of-range global event rate."""
+    config_dict = {
+        "world": {
+            "observation": {
+                "private_event_rate": 0.1,
+                "global_event_rate": 1.5,  # Invalid: must be in [0, 1]
+            },
+            "truths": {0: True},
+            "noise": {"OBSERVE": 0.0, "HEAR": 0.1, "VERIFY": 0.05},
+        },
+        "agent": {
+            "defaults": {},
+            "profiles": [{"name": "default", "count": 3}],
+        },
+    }
+
+    cfg = OmegaConf.create(config_dict)
+
+    with pytest.raises(
+        ValueError,
+        match="world.observation.global_event_rate must be in \\[0, 1\\]",
+    ):
+        validate_config(cfg)
+
+
+def test_validate_config_invalid_observation_attention():
+    """Test config validation with out-of-range observation attention."""
+    config_dict = {
+        "world": {
+            "observation": {"private_event_rate": 0.1, "global_event_rate": 0.0},
+            "truths": {0: True},
+            "noise": {"OBSERVE": 0.0, "HEAR": 0.1, "VERIFY": 0.05},
+        },
+        "agent": {
+            "defaults": {
+                "observation": {"attention": 1.5},  # Invalid: must be in [0, 1]
+            },
+            "profiles": [{"name": "default", "count": 3}],
+        },
+    }
+
+    cfg = OmegaConf.create(config_dict)
+
+    with pytest.raises(
+        ValueError,
+        match="agent.defaults.observation.attention must be in \\[0, 1\\]",
+    ):
+        validate_config(cfg)
+
+
+def test_validate_config_invalid_observation_bias():
+    """Test config validation with out-of-range observation bias on a profile."""
+    config_dict = {
+        "world": {
+            "observation": {"private_event_rate": 0.1, "global_event_rate": 0.0},
+            "truths": {0: True},
+            "noise": {"OBSERVE": 0.0, "HEAR": 0.1, "VERIFY": 0.05},
+        },
+        "agent": {
+            "defaults": {},
+            "profiles": [
+                {
+                    "name": "extreme",
+                    "count": 3,
+                    "observation": {"bias": -1.5},  # Invalid: must be in [-1, 1]
+                }
+            ],
+        },
+    }
+
+    cfg = OmegaConf.create(config_dict)
+
+    with pytest.raises(
+        ValueError,
+        match="agent.profiles.extreme.observation.bias must be in \\[-1, 1\\]",
+    ):
+        validate_config(cfg)
+
+
 def test_validate_config_negative_noise():
     """Test config validation with negative noise values."""
     config_dict = {
