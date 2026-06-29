@@ -134,7 +134,31 @@ def test_validate_config_invalid_profile_count():
 
     cfg = OmegaConf.create(config_dict)
 
-    with pytest.raises(ValueError, match="agent profile default count must be > 0"):
+    with pytest.raises(
+        ValueError, match="agent profile default count must be a positive integer"
+    ):
+        validate_config(cfg)
+
+
+def test_validate_config_non_integral_profile_count():
+    """A non-integral count is rejected rather than silently floored."""
+    config_dict = {
+        "world": {
+            "observation": {"private_event_rate": 0.1, "global_event_rate": 0.0},
+            "truths": {0: True},
+            "noise": {"OBSERVE": 0.0, "HEAR": 0.1, "VERIFY": 0.05},
+        },
+        "agent": {
+            "defaults": {},
+            "profiles": [{"name": "default", "count": 2.9}],  # Invalid: not an int
+        },
+    }
+
+    cfg = OmegaConf.create(config_dict)
+
+    with pytest.raises(
+        ValueError, match="agent profile default count must be a positive integer"
+    ):
         validate_config(cfg)
 
 
@@ -786,7 +810,9 @@ def test_profile_missing_count_raises():
     """Each profile must define a count."""
     config_dict = _config([{"name": "default"}])
     cfg = OmegaConf.create(config_dict)
-    with pytest.raises(ValueError, match="agent profile default count must be > 0"):
+    with pytest.raises(
+        ValueError, match="agent profile default count must be a positive integer"
+    ):
         validate_config(cfg)
 
 

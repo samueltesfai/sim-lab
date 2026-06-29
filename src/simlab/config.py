@@ -94,8 +94,9 @@ def validate_config(cfg: OmegaConf) -> None:
         if "name" not in profile:
             raise ValueError("each agent profile must define name")
         name = profile.name
-        if "count" not in profile or profile.count <= 0:
-            raise ValueError(f"agent profile {name} count must be > 0")
+        count = profile.count if "count" in profile else None
+        if not isinstance(count, int) or isinstance(count, bool) or count <= 0:
+            raise ValueError(f"agent profile {name} count must be a positive integer")
         _validate_agent_settings(profile, context=f"agent.profiles.{name}")
 
     # Truths validation
