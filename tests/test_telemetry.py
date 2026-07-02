@@ -324,3 +324,141 @@ def test_first_step_delta_uses_initial_belief_state():
 
     assert row.mean_abs_delta == pytest.approx(expected_mean)
     assert row.max_abs_delta == pytest.approx(expected_max)
+
+
+# ---------------------------------------------------------------------------
+# New social-dynamics telemetry metric tests
+# ---------------------------------------------------------------------------
+
+
+def test_mean_claim_belief_variance_present_and_nonneg():
+    """mean_claim_belief_variance is non-negative and appears in exports."""
+    world = _build_world(4)
+    telemetry = Telemetry()
+    row = telemetry.record(world.step(), world)
+
+    assert row.mean_claim_belief_variance >= 0.0
+
+
+def test_mean_claim_belief_variance_computed_correctly():
+    """mean_claim_belief_variance matches manual per-claim variance."""
+    world = _build_world(4)
+    # Fix all agent beliefs to known values for claim 0.
+    vals = [0.2, 0.4, 0.6, 0.8]
+    for agent, v in zip(world.agents, vals):
+        agent.beliefs[0] = v
+
+    beliefs = world.get_agent_beliefs_snapshot()
+    claim_ids = list(world.truths.keys())
+
+    mean = sum(vals) / len(vals)
+    expected_var = sum((x - mean) ** 2 for x in vals) / len(vals)
+
+    actual = Telemetry._claim_belief_variance(beliefs, claim_ids)
+    assert actual == pytest.approx(expected_var)
+
+
+def test_mean_claim_belief_variance_zero_for_identical_beliefs():
+    """Variance is 0.0 when all agents share the same belief."""
+    world = _build_world(3)
+    for agent in world.agents:
+        agent.beliefs[0] = 0.5
+
+    beliefs = world.get_agent_beliefs_snapshot()
+    claim_ids = list(world.truths.keys())
+
+    assert Telemetry._claim_belief_variance(beliefs, claim_ids) == pytest.approx(0.0)
+
+
+def test_fraction_confident_wrong_zero_when_beliefs_correct():
+    """No agent is confident-and-wrong when all beliefs are on the correct side."""
+    world = _build_world(3)
+    # claim 0 is True; beliefs near 1.0 are correct and confident.
+    for agent in world.agents:
+        agent.beliefs[0] = 0.9
+
+    beliefs = world.get_agent_beliefs_snapshot()
+    result = Telemetry._fraction_confident_wrong(beliefs, world.truths)
+    assert result == pytest.approx(0.0)
+
+
+def test_fraction_confident_wrong_one_when_all_confident_wrong():
+    """1.0 when every agent is confidently wrong about a true claim."""
+    agents = [Agent(i, rng_seed=i) for i in range(3)]
+    world = World(agents=agents, truths={0: True}, rng_seed=1)
+    for agent in world.agents:
+        agent.beliefs[0] = 0.1  # wrong side for a true claim, confidence=0.8
+
+    beliefs = world.get_agent_beliefs_snapshot()
+    result = Telemetry._fraction_confident_wrong(beliefs, world.truths)
+    assert result == pytest.approx(1.0)
+
+
+def test_fraction_confident_wrong_is_between_zero_and_one():
+    """fraction_confident_wrong is always in [0, 1]."""
+    world = _build_world(5)
+    telemetry = Telemetry()
+    row = telemetry.record(world.step(), world)
+
+    assert 0.0 <= row.fraction_confident_wrong <= 1.0
+
+
+def test_mean_trust_and_trust_std_zero_with_no_trust_entries():
+    """mean_trust and trust_std are 0.0 when no trust entries have been realized."""
+    world = _build_world(3)
+    telemetry = Telemetry()
+
+    # Before any social interaction, trust defaultdicts are empty.
+    row = telemetry.record_initial(world)
+
+    assert row.mean_trust == pytest.approx(0.0)
+    assert row.trust_std == pytest.approx(0.0)
+
+
+def test_mean_trust_reflects_realized_entries():
+    """mean_trust equals the average of trust values explicitly set on agents."""
+    world = _build_world(3)
+    # Manually trigger trust entries.
+    world.get_agent(0).trust[1] = 0.6
+    world.get_agent(0).trust[2] = 0.4
+
+    mean, std = Telemetry._trust_stats(world.agents)
+
+    assert mean == pytest.approx(0.5)
+    assert std == pytest.approx(0.1)
+
+
+def test_trust_std_zero_for_uniform_trust():
+    """trust_std is 0.0 when all realized trust values are identical."""
+    world = _build_world(2)
+    world.get_agent(0).trust[1] = 0.7
+    world.get_agent(1).trust[0] = 0.7
+
+    _, std = Telemetry._trust_stats(world.agents)
+    assert std == pytest.approx(0.0)
+
+
+def test_new_metrics_in_to_dict_and_jsonl():
+    """New metrics are present in to_dict output and JSONL export."""
+    world = _build_world(3)
+    telemetry = Telemetry()
+    row = telemetry.record(world.step(), world)
+    d = row.to_dict()
+
+    assert "mean_claim_belief_variance" in d
+    assert "fraction_confident_wrong" in d
+    assert "mean_trust" in d
+    assert "trust_std" in d
+
+
+def test_new_metrics_in_format_cli():
+    """New metrics appear in the CLI-formatted string."""
+    world = _build_world(3)
+    telemetry = Telemetry()
+    row = telemetry.record(world.step(), world)
+    formatted = row.format_cli()
+
+    assert "bvar=" in formatted
+    assert "conf_wrong=" in formatted
+    assert "trust_mean=" in formatted
+    assert "trust_std=" in formatted

@@ -105,6 +105,9 @@ class Agent:
         observe_weight: float = 0.6,
         hear_weight: float = 0.3,
         verify_weight: float = 1.0,
+        social_confidence_bound: float = 1.0,
+        social_trust_update_rate: float = 0.0,
+        social_update_trust_on_rejection: bool = True,
     ):
         self.id = id
         self.rng = random.Random(rng_seed)
@@ -118,6 +121,15 @@ class Agent:
         self.observe_weight = observe_weight  # channel weight for OBSERVE
         self.hear_weight = hear_weight  # channel weight for HEAR
         self.verify_weight = verify_weight  # channel weight for VERIFY
+        self.social_confidence_bound = (
+            social_confidence_bound  # max distance for HEAR to update belief
+        )
+        self.social_trust_update_rate = (
+            social_trust_update_rate  # rate of dynamic trust adjustment
+        )
+        self.social_update_trust_on_rejection = (
+            social_update_trust_on_rejection  # update trust even when HEAR rejected
+        )
 
         self.beliefs: defaultdict[int, float] = defaultdict(lambda: self.rng.random())
         self.trust: defaultdict[int, float] = defaultdict(lambda: self.default_trust)
@@ -146,14 +158,15 @@ class Agent:
     def __repr__(self):
         return f"Agent(id={self.id}, profile={self.profile_name!r}, beliefs={dict(self.beliefs)}, trust={dict(self.trust)}, memory={len(self.memory)})"
 
-    def add_memory(
+    def _add_memory(
         self,
-        world: "World",
+        *,
+        tick: int,
         memory_type: MemoryType,
         claim_id: int,
         evidence: float,
         source: int | None = None,
-    ):
+    ) -> None:
         """
         Add a memory to the agent's memory list.
 
@@ -162,9 +175,13 @@ class Agent:
         and encoded by the agent before being stored here, so every memory
         type requires an explicit ``claim_id`` and ``evidence``.
 
+        This is internal model mechanics: memories are created on the agent's
+        behalf by the world during action execution and delivery, not by
+        external callers.
+
         :param self:
-        :param world: The world in which the agent is adding the memory
-        :type world: 'World'
+        :param tick: The simulation tick at which the memory is formed
+        :type tick: int
         :param memory_type: The type of memory being added
         :type memory_type: MemoryType
         :param claim_id: The ID of the claim for the memory
@@ -177,14 +194,14 @@ class Agent:
         memory = Memory(
             id=len(self.memory),
             type=memory_type,
-            timestamp=world.tick,
+            timestamp=tick,
             source=source,
             claim_id=claim_id,
             evidence=evidence,
         )
         self.memory.append(memory)
 
-    def notices_observation(self, world: "World", event: ObservationEvent) -> bool:
+    def notices_observation(self, event: ObservationEvent) -> bool:
         """
         Decide whether this agent notices an available observation event.
 
@@ -192,8 +209,6 @@ class Agent:
         observation opportunity presented by the world.
 
         :param self:
-        :param world: The world in which the agent exists
-        :type world: 'World'
         :param event: The observation event presented to the agent
         :type event: ObservationEvent
         :return: True if the agent notices the event
@@ -208,7 +223,7 @@ class Agent:
             return True
         return self.rng.random() < self.observation_attention
 
-    def encode_observation(self, world: "World", event: ObservationEvent) -> float:
+    def encode_observation(self, event: ObservationEvent) -> float:
         """
         Encode a noticed observation event into subjective evidence.
 
@@ -218,57 +233,12 @@ class Agent:
         observation noise.)
 
         :param self:
-        :param world: The world in which the agent exists
-        :type world: 'World'
         :param event: The observation event being encoded
         :type event: ObservationEvent
         :return: The subjectively encoded evidence value in [0, 1]
         :rtype: float
         """
         return clamp(event.evidence + self.observation_bias)
-
-    def _communicate(self, world: "World", target_agent_id: int, claim_id: int):
-        """
-        Communicate a claim to another agent, allowing them to receive social evidence
-        based on the broadcasting agent's beliefs and some noise.
-
-        :param self:
-        :param world: The world in which the agent is communicating the claim
-        :type world: 'World'
-        :param target_agent_id: The ID of the target agent for communication
-        :type target_agent_id: int
-        :param claim_id: The ID of the claim being communicated
-        :type claim_id: int
-        """
-        world.deliver_communicate(self.id, target_agent_id, claim_id)
-
-    def _broadcast(self, world: "World", claim_id: int):
-        """
-        Broadcast a claim to all connected agents in the social network, allowing them
-        to receive social evidence based on the broadcasting agent's beliefs and some
-        noise.
-
-        :param self:
-        :param world: The world in which the agent is broadcasting the claim
-        :type world: 'World'
-        :param claim_id: The ID of the claim being broadcast
-        :type claim_id: int
-        """
-        world.deliver_broadcast(self.id, claim_id)
-
-    def _verify(self, world: "World", claim_id: int):
-        """
-        Verify a claim by directly checking its truth in the world, generating evidence
-        based on the truth of the claim and some noise.
-
-        :param self:
-        :param world: The world in which the agent is verifying the claim
-        :type world: 'World'
-        :param claim_id: The ID of the claim being verified
-        :type claim_id: int
-        """
-        evidence = world.generate_verification_evidence(claim_id)
-        self.add_memory(world, MemoryType.VERIFY, claim_id=claim_id, evidence=evidence)
 
     @property
     def memory_size(self) -> int:
@@ -349,32 +319,6 @@ class Agent:
             / n_neighbors
         )
 
-    def get_action_preference(self, world: "World", action: Action) -> float:
-        """
-        Get the preference for a given action.
-
-        :param world: The world in which the agent is generating candidate actions
-        :type world: 'World'
-        :param action: The action
-        :type action: Action
-        :return: The preference for the action
-        :rtype: float
-        """
-        return self.action_preference[action.type]
-
-    def get_action_cost(self, world: "World", action: Action) -> float:
-        """
-        Get the cost for a given action.
-
-        :param world: The world in which the agent is generating candidate actions
-        :type world: 'World'
-        :param action: The action
-        :type action: Action
-        :return: The cost for the action
-        :rtype: float
-        """
-        return self.action_cost[action.type]
-
     def generate_candidate_actions(self, world: "World") -> list[Action]:
         """
         Generate a list of candidate actions for the agent to choose from.
@@ -417,24 +361,28 @@ class Agent:
 
         match action.type:
             case ActionType.VERIFY:
-                return self.get_action_preference(world, action) * self.uncertainty(
-                    action.claim_id
-                ) - self.get_action_cost(world, action)
+                return (
+                    self.action_preference[action.type]
+                    * self.uncertainty(action.claim_id)
+                    - self.action_cost[action.type]
+                )
             case ActionType.COMMUNICATE:
-                return self.get_action_preference(world, action) * self.confidence(
-                    action.claim_id
-                ) * self.disagreement(
-                    action.claim_id, action.target_agent_id, world
-                ) - self.get_action_cost(world, action)
+                return (
+                    self.action_preference[action.type]
+                    * self.confidence(action.claim_id)
+                    * self.disagreement(action.claim_id, action.target_agent_id, world)
+                    - self.action_cost[action.type]
+                )
             case ActionType.BROADCAST:
-                return self.get_action_preference(world, action) * self.confidence(
-                    action.claim_id
-                ) * self.local_disagreement(
-                    action.claim_id, world
-                ) - self.get_action_cost(world, action)
+                return (
+                    self.action_preference[action.type]
+                    * self.confidence(action.claim_id)
+                    * self.local_disagreement(action.claim_id, world)
+                    - self.action_cost[action.type]
+                )
             case ActionType.IDLE:
-                return self.get_action_preference(world, action) - self.get_action_cost(
-                    world, action
+                return (
+                    self.action_preference[action.type] - self.action_cost[action.type]
                 )
             case _:
                 raise ValueError(
@@ -456,74 +404,126 @@ class Agent:
             key=lambda action: self.score_action(world, action),
         )
 
-    def act(self, world: "World", action: Action):
-        """
-        Execute the chosen action using a dispatcher pattern.
-
-        :param self:
-        :param world: The world in which the agent is performing the action
-        :type world: 'World'
-        :param action: The action to perform
-        :type action: Action
-        """
-        match action.type:
-            case ActionType.VERIFY:
-                self._verify(world, action.claim_id)
-            case ActionType.COMMUNICATE:
-                self._communicate(world, action.target_agent_id, action.claim_id)
-            case ActionType.BROADCAST:
-                self._broadcast(world, action.claim_id)
-            case ActionType.IDLE:
-                pass  # Do nothing
-            case _:
-                raise ValueError(
-                    f"Unknown action type: {action.type} for action {action}"
-                )
-
     def update_beliefs(self) -> bool:
         """
         Update the agent's beliefs based on accumulated memories.
 
         The effective learning rate for each memory is the agent's global
         plasticity (``learning_rate``) scaled by a channel-specific weight, and
-        further modulated by trust for socially heard memories.
+        further modulated by trust for socially heard memories. HEAR memories
+        are additionally subject to bounded confidence and dynamic trust updates.
+
+        All newly accumulated memories are consumed regardless of the return
+        value; trust may still change for HEAR memories even when no belief
+        moves.
 
         :param self:
-        :return: True if any beliefs were updated, False otherwise
+        :return: True if at least one belief value changed, False otherwise
         :rtype: bool
         """
-        updated = False
+        belief_changed = False
         while self._mem_cursor < len(self.memory):
-            updated = True
             mem = self.memory[self._mem_cursor]
-
-            if mem.claim_id is not None and mem.evidence is not None:
-                match mem.type:
-                    case MemoryType.OBSERVE:
-                        lr = self.learning_rate * self.observe_weight
-                    case MemoryType.VERIFY:
-                        lr = self.learning_rate * self.verify_weight
-                    case MemoryType.HEAR:
-                        if mem.source is None:
-                            lr = 0.0
-                        else:
-                            lr = (
-                                self.learning_rate
-                                * self.hear_weight
-                                * self.trust[mem.source]
-                            )
-                    case _:
-                        lr = 0.0
-
-                lr = clamp(lr)
-
-                b = self.beliefs[mem.claim_id]
-                b_new = b + lr * (mem.evidence - b)
-                self.beliefs[mem.claim_id] = clamp(b_new)
-
+            if self._process_memory(mem):
+                belief_changed = True
             self._mem_cursor += 1
+        return belief_changed
 
-        return updated
+    def _process_memory(self, mem: Memory) -> bool:
+        """
+        Apply a single memory to beliefs, with trust side-effects for HEAR.
+
+        :param mem: The memory to process
+        :type mem: Memory
+        :return: True if the belief value for the memory's claim changed
+        :rtype: bool
+        """
+        if mem.claim_id is None or mem.evidence is None:
+            return False
+
+        belief_before = self.beliefs[mem.claim_id]
+        lr = clamp(self._effective_learning_rate(mem, belief_before))
+        belief_after = clamp(belief_before + lr * (mem.evidence - belief_before))
+        self.beliefs[mem.claim_id] = belief_after
+
+        if mem.type == MemoryType.HEAR:
+            accepted = self._should_accept_heard_memory(mem, belief_before)
+            self._update_trust_from_heard_memory(mem, belief_before, accepted)
+
+        return belief_after != belief_before
+
+    def _effective_learning_rate(self, mem: Memory, belief_before: float) -> float:
+        """
+        Compute the effective learning rate for a memory before clamping.
+
+        For HEAR memories, returns 0.0 when the heard evidence falls outside
+        the agent's social confidence bound.
+
+        :param mem: The memory being processed
+        :type mem: Memory
+        :param belief_before: The agent's belief for the claim before this update
+        :type belief_before: float
+        :return: Raw (unclamped) effective learning rate
+        :rtype: float
+        """
+        match mem.type:
+            case MemoryType.OBSERVE:
+                return self.learning_rate * self.observe_weight
+            case MemoryType.VERIFY:
+                return self.learning_rate * self.verify_weight
+            case MemoryType.HEAR:
+                if mem.source is None:
+                    return 0.0
+                if not self._should_accept_heard_memory(mem, belief_before):
+                    return 0.0
+                return self.learning_rate * self.hear_weight * self.trust[mem.source]
+            case _:
+                return 0.0
+
+    def _should_accept_heard_memory(self, mem: Memory, belief_before: float) -> bool:
+        """
+        Return True when heard evidence is within the agent's confidence bound.
+
+        :param mem: The HEAR memory being evaluated
+        :type mem: Memory
+        :param belief_before: The agent's belief for the claim before this update
+        :type belief_before: float
+        :return: True if the memory is within the confidence bound
+        :rtype: bool
+        """
+        distance = abs(mem.evidence - belief_before)
+        return distance <= self.social_confidence_bound
+
+    def _update_trust_from_heard_memory(
+        self,
+        mem: Memory,
+        belief_before: float,
+        accepted: bool,
+    ) -> None:
+        """
+        Update trust in the source agent based on agreement with heard evidence.
+
+        No-op when ``social_trust_update_rate`` is 0 or when the memory was
+        rejected and ``social_update_trust_on_rejection`` is False.
+
+        :param mem: The HEAR memory being evaluated
+        :type mem: Memory
+        :param belief_before: The agent's belief for the claim before this update
+        :type belief_before: float
+        :param accepted: Whether the memory was accepted by bounded confidence
+        :type accepted: bool
+        """
+        if self.social_trust_update_rate == 0.0:
+            return
+        if not accepted and not self.social_update_trust_on_rejection:
+            return
+        if mem.source is None:
+            return
+        agreement = 1.0 - abs(mem.evidence - belief_before)
+        trust_delta = self.social_trust_update_rate * (
+            agreement - self.trust[mem.source]
+        )
+        self.trust[mem.source] = clamp(self.trust[mem.source] + trust_delta)
 
 
 class World:
@@ -611,7 +611,7 @@ class World:
     def get_agent(self, agent_id: int) -> Agent:
         return self._agents[agent_id]
 
-    def generate_observation_evidence(self, claim_id: int) -> float:
+    def _generate_observation_evidence(self, claim_id: int) -> float:
         """
         Generate truth-grounded observation evidence for a claim.
 
@@ -628,7 +628,7 @@ class World:
         noise = self.rng.gauss(0, self.noise[MemoryType.OBSERVE])
         return clamp(base + noise)
 
-    def generate_verification_evidence(self, claim_id: int) -> float:
+    def _generate_verification_evidence(self, claim_id: int) -> float:
         """
         Generate truth-grounded verification evidence for a claim.
 
@@ -641,7 +641,7 @@ class World:
         noise = self.rng.gauss(0, self.noise[MemoryType.VERIFY])
         return clamp(base + noise)
 
-    def generate_heard_evidence(self, sender_id: int, claim_id: int) -> float:
+    def _generate_heard_evidence(self, sender_id: int, claim_id: int) -> float:
         """
         Generate social (heard) evidence from a sender's current belief.
 
@@ -659,7 +659,7 @@ class World:
         noise = self.rng.gauss(0, self.noise[MemoryType.HEAR])
         return clamp(base + noise)
 
-    def generate_observation_events(self) -> list[ObservationEvent]:
+    def _generate_observation_events(self) -> list[ObservationEvent]:
         """
         Generate this tick's passive observation events.
 
@@ -685,7 +685,7 @@ class World:
                 continue
 
             claim_id = self.rng.choice(self.claims)
-            evidence = self.generate_observation_evidence(claim_id)
+            evidence = self._generate_observation_evidence(claim_id)
 
             events.append(
                 ObservationEvent(
@@ -701,7 +701,7 @@ class World:
         # Global observation event: all-agent visibility.
         if self.rng.random() < self.global_event_rate:
             claim_id = self.rng.choice(self.claims)
-            evidence = self.generate_observation_evidence(claim_id)
+            evidence = self._generate_observation_evidence(claim_id)
 
             events.append(
                 ObservationEvent(
@@ -716,7 +716,7 @@ class World:
 
         return events
 
-    def deliver_observation_events(self, events: list[ObservationEvent]) -> list[int]:
+    def _deliver_observation_events(self, events: list[ObservationEvent]) -> list[int]:
         """
         Deliver observation events to their visible agents.
 
@@ -735,12 +735,12 @@ class World:
         for event in events:
             for agent_id in event.visible_agent_ids:
                 agent = self.get_agent(agent_id)
-                if not agent.notices_observation(self, event):
+                if not agent.notices_observation(event):
                     continue
-                evidence = agent.encode_observation(self, event)
-                agent.add_memory(
-                    self,
-                    MemoryType.OBSERVE,
+                evidence = agent.encode_observation(event)
+                agent._add_memory(
+                    tick=self.tick,
+                    memory_type=MemoryType.OBSERVE,
                     claim_id=event.claim_id,
                     evidence=evidence,
                 )
@@ -748,7 +748,7 @@ class World:
 
         return observed_ids
 
-    def deliver_communicate(self, sender_id: int, receiver_id: int, claim_id: int):
+    def _deliver_communicate(self, sender_id: int, receiver_id: int, claim_id: int):
         """
         Handle the reception of a communicated claim from one agent to another,
         allowing the receiving agent to receive social evidence based on the sending
@@ -765,16 +765,16 @@ class World:
         :type receiver_id: int
         :type claim_id: int
         """
-        evidence = self.generate_heard_evidence(sender_id, claim_id)
-        self.get_agent(receiver_id).add_memory(
-            self,
-            MemoryType.HEAR,
+        evidence = self._generate_heard_evidence(sender_id, claim_id)
+        self.get_agent(receiver_id)._add_memory(
+            tick=self.tick,
+            memory_type=MemoryType.HEAR,
             source=sender_id,
             claim_id=claim_id,
             evidence=evidence,
         )
 
-    def deliver_broadcast(self, sender_id: int, claim_id: int):
+    def _deliver_broadcast(self, sender_id: int, claim_id: int):
         """
         Handle the reception of a broadcasted claim from an agent, allowing connected
         agents to receive social evidence based on the broadcasting agent's beliefs and
@@ -788,14 +788,51 @@ class World:
         :type claim_id: int
         """
         for receiver_id in self.network[sender_id]:
-            evidence = self.generate_heard_evidence(sender_id, claim_id)
-            self.get_agent(receiver_id).add_memory(
-                self,
-                MemoryType.HEAR,
+            evidence = self._generate_heard_evidence(sender_id, claim_id)
+            self.get_agent(receiver_id)._add_memory(
+                tick=self.tick,
+                memory_type=MemoryType.HEAR,
                 source=sender_id,
                 claim_id=claim_id,
                 evidence=evidence,
             )
+
+    def _execute_action(self, agent: Agent, action: Action) -> None:
+        """
+        Execute an agent's chosen action in the environment.
+
+        The world owns action execution: it generates environmental evidence,
+        delivers social messages, and records the resulting memories on the
+        acting or receiving agents. Agents only decide what they want to do.
+
+        :param self: The world instance
+        :type self: World
+        :param agent: The agent performing the action
+        :type agent: Agent
+        :param action: The action to execute
+        :type action: Action
+        """
+        match action.type:
+            case ActionType.VERIFY:
+                evidence = self._generate_verification_evidence(action.claim_id)
+                agent._add_memory(
+                    tick=self.tick,
+                    memory_type=MemoryType.VERIFY,
+                    claim_id=action.claim_id,
+                    evidence=evidence,
+                )
+            case ActionType.COMMUNICATE:
+                self._deliver_communicate(
+                    agent.id, action.target_agent_id, action.claim_id
+                )
+            case ActionType.BROADCAST:
+                self._deliver_broadcast(agent.id, action.claim_id)
+            case ActionType.IDLE:
+                pass  # Do nothing
+            case _:
+                raise ValueError(
+                    f"Unknown action type: {action.type} for action {action}"
+                )
 
     def step(self) -> Snapshot:
         """
@@ -808,8 +845,8 @@ class World:
         :return: The snapshot of the world after the step
         :rtype: Snapshot
         """
-        observation_events = self.generate_observation_events()
-        observed_ids = self.deliver_observation_events(observation_events)
+        observation_events = self._generate_observation_events()
+        observed_ids = self._deliver_observation_events(observation_events)
         verified_ids: list[int] = []
         communicate_edges: list[tuple[int, int]] = []
         broadcast_edges: list[tuple[int, int]] = []
@@ -817,7 +854,7 @@ class World:
 
         for agent in self.agents:
             action = agent.choose_action(self)
-            agent.act(self, action)
+            self._execute_action(agent, action)
 
             # Track what happened
             match action.type:
