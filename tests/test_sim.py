@@ -15,6 +15,7 @@ from simlab.sim import (
     ObservationEvent,
     clamp,
 )
+from tests.helpers import seed_memory
 
 
 def _build_world(n: int = 5) -> World:
@@ -76,7 +77,6 @@ def test_agent_initialization():
     assert isinstance(agent.beliefs, defaultdict)
     assert isinstance(agent.trust, defaultdict)
     assert agent.memory == []
-    assert agent._mem_cursor == 0
 
     # Test default action preferences
     expected_preferences = {
@@ -218,20 +218,6 @@ def test_agent_local_disagreement():
     assert agent.local_disagreement(0, world) == 0.0
 
 
-def test_agent_action_preference_and_cost():
-    """Test agent action preference and cost methods."""
-    agent = Agent(id=0, rng_seed=42)
-    world = _build_world(2)
-
-    action = Action(ActionType.VERIFY, claim_id=0)
-
-    preference = agent.get_action_preference(world, action)
-    assert preference == agent.action_preference[ActionType.VERIFY]
-
-    cost = agent.get_action_cost(world, action)
-    assert cost == agent.action_cost[ActionType.VERIFY]
-
-
 def test_agent_generate_candidate_actions():
     """Test agent candidate action generation."""
     world = _build_world(2)
@@ -330,38 +316,36 @@ def test_agent_choose_action():
     assert isinstance(action2, Action)
 
 
-def test_agent_act():
-    """Test agent action execution."""
+def test_execute_action():
+    """World.execute_action dispatches an agent's action into the environment."""
     world = _build_world(2)
     agent = world.get_agent(0)
 
-    # Test IDLE action
-    idle_action = Action(ActionType.IDLE)
-    agent.act(world, idle_action)  # Should not raise
+    # IDLE should be a no-op
+    world._execute_action(agent, Action(ActionType.IDLE))
+    assert agent.memory == []
 
-    # Test VERIFY action
-    verify_action = Action(ActionType.VERIFY, claim_id=0)
+    # VERIFY records a verification memory on the acting agent
     initial_memory_count = len(agent.memory)
-    agent.act(world, verify_action)
+    world._execute_action(agent, Action(ActionType.VERIFY, claim_id=0))
     assert len(agent.memory) == initial_memory_count + 1
     assert agent.memory[-1].type == MemoryType.VERIFY
     assert agent.memory[-1].claim_id == 0
 
-    # Test invalid action type
+    # Invalid action types are rejected at construction time
     with pytest.raises(ValueError, match="'INVALID_TYPE' is not a valid ActionType"):
         Action("INVALID_TYPE")
-    # This line should never be reached due to the above exception
-    # with pytest.raises(ValueError, match="Unknown action type"):
-    #     agent.act(world, invalid_action)
 
 
-def test_agent_add_memory():
-    """Test agent memory addition."""
+def test_add_memory_records_fields():
+    """Agent._add_memory stores evidence with the provided metadata."""
     world = _build_world(2)
     agent = world.get_agent(0)
 
-    # Test observation memory
-    agent.add_memory(world, MemoryType.OBSERVE, claim_id=0, evidence=0.8)
+    # Observation memory
+    seed_memory(
+        agent, memory_type=MemoryType.OBSERVE, claim_id=0, evidence=0.8, tick=world.tick
+    )
     memory = agent.memory[-1]
     assert memory.type == MemoryType.OBSERVE
     assert memory.claim_id == 0
@@ -369,14 +353,14 @@ def test_agent_add_memory():
     assert memory.timestamp == world.tick
     assert memory.evidence == 0.8
 
-    # Test verify memory
-    agent.add_memory(world, MemoryType.VERIFY, claim_id=0, evidence=1.0)
+    # Verify memory
+    seed_memory(agent, memory_type=MemoryType.VERIFY, claim_id=0, evidence=1.0)
     memory = agent.memory[-1]
     assert memory.type == MemoryType.VERIFY
     assert memory.claim_id == 0
 
-    # Test hear memory
-    agent.add_memory(world, MemoryType.HEAR, source=1, claim_id=0, evidence=0.4)
+    # Hear memory carries a source
+    seed_memory(agent, memory_type=MemoryType.HEAR, source=1, claim_id=0, evidence=0.4)
     memory = agent.memory[-1]
     assert memory.type == MemoryType.HEAR
     assert memory.source == 1
@@ -384,9 +368,9 @@ def test_agent_add_memory():
 
     # Memories require explicit claim_id and evidence
     with pytest.raises(TypeError):
-        agent.add_memory(world, MemoryType.OBSERVE, claim_id=0)
+        agent._add_memory(tick=0, memory_type=MemoryType.OBSERVE, claim_id=0)
     with pytest.raises(TypeError):
-        agent.add_memory(world, MemoryType.VERIFY, evidence=0.5)
+        agent._add_memory(tick=0, memory_type=MemoryType.VERIFY, evidence=0.5)
 
 
 def test_agent_update_beliefs():
@@ -398,12 +382,11 @@ def test_agent_update_beliefs():
     agent.beliefs[0] = 0.5
 
     # Add memory with evidence
-    agent.add_memory(world, MemoryType.VERIFY, claim_id=0, evidence=1.0)
+    seed_memory(agent, memory_type=MemoryType.VERIFY, claim_id=0, evidence=1.0)
 
     # Update beliefs
     updated = agent.update_beliefs()
     assert updated
-    assert agent._mem_cursor == 1
 
     # Belief should have moved toward evidence
     # (exact value depends on evidence and learning rate)
@@ -498,45 +481,38 @@ def test_world_get_agent_beliefs_snapshot():
 
 
 def test_world_observation_events():
-    """Test World observation event generation and delivery."""
+    """World.step delivers one private observation event per agent."""
     world = _build_world(3)
-
-    # Set rate to 1.0 so the world emits one event per agent (deterministic).
     world.private_event_rate = 1.0
 
-    events = world.generate_observation_events()
+    snapshot = world.step()
 
-    assert isinstance(events, list)
-    assert len(events) == 3  # One private event per agent
-    for event in events:
-        assert len(event.visible_agent_ids) == 1
-        assert event.claim_id in world.claims
-        assert 0.0 <= event.evidence <= 1.0
+    # One private event per agent; all observed with default attention=1.0.
+    assert snapshot.observation_event_count == 3
+    assert sorted(snapshot.observed_ids) == [0, 1, 2]
 
-    # With default attention 1.0, all visible agents should observe.
-    observed_agents = world.deliver_observation_events(events)
-
-    assert isinstance(observed_agents, list)
-    assert sorted(observed_agents) == [0, 1, 2]
-
-    # Agents should have received memories
-    for agent_id in observed_agents:
+    # Each observing agent holds at least one valid OBSERVE memory.
+    for agent_id in snapshot.observed_ids:
         agent = world.get_agent(agent_id)
-        assert len(agent.memory) > 0
-        memory = agent.memory[-1]
-        assert memory.type == MemoryType.OBSERVE
-        assert memory.claim_id in world.claims
+        observe_memories = [m for m in agent.memory if m.type == MemoryType.OBSERVE]
+        assert len(observe_memories) >= 1
+        mem = observe_memories[-1]
+        assert mem.claim_id in world.claims
+        assert 0.0 <= mem.evidence <= 1.0
 
 
 def test_world_deliver_communicate():
-    """Test World.deliver_communicate method."""
+    """Executing COMMUNICATE delivers a HEAR memory to the receiver."""
     world = _build_world(2)
+    world.network[0] = [1]
 
+    sender = world.get_agent(0)
     receiver = world.get_agent(1)
-
     initial_memory_count = len(receiver.memory)
 
-    world.deliver_communicate(0, 1, 0)
+    world._execute_action(
+        sender, Action(ActionType.COMMUNICATE, claim_id=0, target_agent_id=1)
+    )
 
     assert len(receiver.memory) == initial_memory_count + 1
     memory = receiver.memory[-1]
@@ -546,24 +522,21 @@ def test_world_deliver_communicate():
 
 
 def test_world_deliver_broadcast():
-    """Test World.deliver_broadcast method."""
+    """Executing BROADCAST delivers a HEAR memory to every neighbor."""
     world = _build_world(3)
-
-    # Force network connections
     world.network[0] = [1, 2]
 
+    sender = world.get_agent(0)
     receiver1 = world.get_agent(1)
     receiver2 = world.get_agent(2)
-
     initial_memory_count_1 = len(receiver1.memory)
     initial_memory_count_2 = len(receiver2.memory)
 
-    world.deliver_broadcast(0, 0)
+    world._execute_action(sender, Action(ActionType.BROADCAST, claim_id=0))
 
     assert len(receiver1.memory) == initial_memory_count_1 + 1
     assert len(receiver2.memory) == initial_memory_count_2 + 1
 
-    # Check memories
     for receiver in [receiver1, receiver2]:
         memory = receiver.memory[-1]
         assert memory.type == MemoryType.HEAR
@@ -684,11 +657,10 @@ def test_attention_one_all_visible_agents_observe():
         private_event_rate=1.0,
     )
 
-    events = world.generate_observation_events()
-    observed = world.deliver_observation_events(events)
+    snapshot = world.step()
 
-    assert len(events) == 5
-    assert sorted(observed) == [0, 1, 2, 3, 4]
+    assert snapshot.observation_event_count == 5
+    assert sorted(snapshot.observed_ids) == [0, 1, 2, 3, 4]
 
 
 def test_private_events_one_per_agent():
@@ -702,11 +674,11 @@ def test_private_events_one_per_agent():
         global_event_rate=0.0,
     )
 
-    events = world.generate_observation_events()
+    snapshot = world.step()
 
-    assert len(events) == 5
-    for event in events:
-        assert len(event.visible_agent_ids) == 1
+    # One private event per agent; with attention=1.0 each agent observes its own.
+    assert snapshot.observation_event_count == 5
+    assert sorted(snapshot.observed_ids) == [0, 1, 2, 3, 4]
 
 
 def test_global_event_visible_to_all_agents():
@@ -720,10 +692,11 @@ def test_global_event_visible_to_all_agents():
         global_event_rate=1.0,
     )
 
-    events = world.generate_observation_events()
+    snapshot = world.step()
 
-    assert len(events) == 1
-    assert sorted(events[0].visible_agent_ids) == [0, 1, 2, 3, 4]
+    # One global event visible to all five agents.
+    assert snapshot.observation_event_count == 1
+    assert sorted(snapshot.observed_ids) == [0, 1, 2, 3, 4]
 
 
 def test_global_event_attention_zero_forms_no_memories():
@@ -788,7 +761,6 @@ def test_private_and_global_events_both_observed_in_one_tick():
 
 def test_encode_observation_applies_bias():
     """encode_observation shifts evidence by the agent's perceptual bias."""
-    world = _build_world(1)
     agent = Agent(0, rng_seed=0, observation_bias=0.1)
     event = ObservationEvent(
         id=0,
@@ -798,7 +770,7 @@ def test_encode_observation_applies_bias():
         visible_agent_ids=(0,),
     )
 
-    assert agent.encode_observation(world, event) == pytest.approx(0.6)
+    assert agent.encode_observation(event) == pytest.approx(0.6)
 
 
 def test_attention_edge_cases_do_not_perturb_belief_rng():
@@ -809,7 +781,6 @@ def test_attention_edge_cases_do_not_perturb_belief_rng():
     This guards against observation event rates entangling with belief/action
     randomness for the common experimental endpoints.
     """
-    world = _build_world(1)
     event = ObservationEvent(
         id=0, tick=0, claim_id=0, evidence=0.5, visible_agent_ids=(0,)
     )
@@ -820,8 +791,8 @@ def test_attention_edge_cases_do_not_perturb_belief_rng():
 
     # Offer many events to the deterministic agents; no RNG should be consumed.
     for _ in range(25):
-        always_attentive.notices_observation(world, event)
-        never_attentive.notices_observation(world, event)
+        always_attentive.notices_observation(event)
+        never_attentive.notices_observation(event)
 
     # Lazy belief init draws from the main RNG, which deterministic attention
     # must not touch.
@@ -829,16 +800,195 @@ def test_attention_edge_cases_do_not_perturb_belief_rng():
     assert never_attentive.beliefs[0] == quiet.beliefs[0]
 
 
+# ---------------------------------------------------------------------------
+# Bounded confidence tests
+# ---------------------------------------------------------------------------
+
+
+def test_hear_inside_confidence_bound_updates_belief():
+    """HEAR within the confidence bound updates the belief normally."""
+    agent = Agent(0, rng_seed=0, social_confidence_bound=1.0)
+    agent.beliefs[0] = 0.5
+    seed_memory(agent, memory_type=MemoryType.HEAR, source=1, claim_id=0, evidence=0.8)
+    agent.update_beliefs()
+
+    assert agent.beliefs[0] > 0.5
+
+
+def test_hear_outside_confidence_bound_does_not_update_belief():
+    """HEAR farther than the confidence bound leaves the belief unchanged."""
+    agent = Agent(0, rng_seed=0, social_confidence_bound=0.1)
+    agent.beliefs[0] = 0.5
+    # evidence is 1.0; distance = |1.0 - 0.5| = 0.5 > 0.1
+    seed_memory(agent, memory_type=MemoryType.HEAR, source=1, claim_id=0, evidence=1.0)
+    agent.update_beliefs()
+
+    assert agent.beliefs[0] == pytest.approx(0.5)
+
+
+def test_observe_unaffected_by_confidence_bound():
+    """Bounded confidence applies only to HEAR; OBSERVE is always processed."""
+    agent = Agent(0, rng_seed=0, social_confidence_bound=0.0)
+    agent.beliefs[0] = 0.5
+    seed_memory(agent, memory_type=MemoryType.OBSERVE, claim_id=0, evidence=1.0)
+    agent.update_beliefs()
+
+    assert agent.beliefs[0] > 0.5
+
+
+def test_verify_unaffected_by_confidence_bound():
+    """Bounded confidence applies only to HEAR; VERIFY is always processed."""
+    agent = Agent(0, rng_seed=0, social_confidence_bound=0.0)
+    agent.beliefs[0] = 0.5
+    seed_memory(agent, memory_type=MemoryType.VERIFY, claim_id=0, evidence=1.0)
+    agent.update_beliefs()
+
+    assert agent.beliefs[0] > 0.5
+
+
+def test_confidence_bound_default_preserves_behavior():
+    """Default confidence_bound=1.0 never rejects HEAR evidence (max distance is 1)."""
+    agent_default = Agent(0, rng_seed=0)  # confidence_bound=1.0
+    agent_open = Agent(0, rng_seed=0, social_confidence_bound=1.0)
+
+    for agent in (agent_default, agent_open):
+        agent.beliefs[0] = 0.3
+        seed_memory(
+            agent, memory_type=MemoryType.HEAR, source=1, claim_id=0, evidence=0.9
+        )
+        agent.update_beliefs()
+
+    assert agent_default.beliefs[0] == pytest.approx(agent_open.beliefs[0])
+
+
+# ---------------------------------------------------------------------------
+# Dynamic trust tests
+# ---------------------------------------------------------------------------
+
+
+def test_trust_increases_when_agreement_exceeds_current_trust():
+    """Trust increases when the source agrees more than the current trust level."""
+    agent = Agent(
+        0,
+        rng_seed=0,
+        social_trust_update_rate=0.5,
+        social_confidence_bound=1.0,
+    )
+    agent.beliefs[0] = 0.5
+    # Force initial trust to a low value
+    agent.trust[1] = 0.2
+    # evidence=0.5 => agreement=1.0-|0.5-0.5|=1.0 > 0.2, so trust should rise
+    seed_memory(agent, memory_type=MemoryType.HEAR, source=1, claim_id=0, evidence=0.5)
+    agent.update_beliefs()
+
+    assert agent.trust[1] > 0.2
+
+
+def test_trust_decreases_when_agreement_below_current_trust():
+    """Trust decreases when the source agrees less than the current trust level."""
+    agent = Agent(
+        0,
+        rng_seed=0,
+        social_trust_update_rate=0.5,
+        social_confidence_bound=1.0,
+    )
+    agent.beliefs[0] = 0.5
+    # Force initial trust to a high value
+    agent.trust[1] = 0.9
+    # evidence=1.0 => agreement=1.0-|1.0-0.5|=0.5 < 0.9, so trust should fall
+    seed_memory(agent, memory_type=MemoryType.HEAR, source=1, claim_id=0, evidence=1.0)
+    agent.update_beliefs()
+
+    assert agent.trust[1] < 0.9
+
+
+def test_rejected_hear_updates_trust_when_flag_true():
+    """Rejected HEAR updates trust when update_trust_on_rejection=True."""
+    agent = Agent(
+        0,
+        rng_seed=0,
+        social_confidence_bound=0.1,  # evidence=1.0 is rejected
+        social_trust_update_rate=0.5,
+        social_update_trust_on_rejection=True,
+    )
+    agent.beliefs[0] = 0.5
+    agent.trust[1] = 0.9
+    initial_trust = agent.trust[1]
+    # evidence=1.0, distance=0.5 > 0.1 -> rejected; but trust should still update
+    seed_memory(agent, memory_type=MemoryType.HEAR, source=1, claim_id=0, evidence=1.0)
+    agent.update_beliefs()
+
+    assert agent.trust[1] != pytest.approx(initial_trust)
+
+
+def test_rejected_hear_does_not_update_trust_when_flag_false():
+    """Rejected HEAR does not update trust when update_trust_on_rejection=False."""
+    agent = Agent(
+        0,
+        rng_seed=0,
+        social_confidence_bound=0.1,  # evidence=1.0 is rejected
+        social_trust_update_rate=0.5,
+        social_update_trust_on_rejection=False,
+    )
+    agent.beliefs[0] = 0.5
+    agent.trust[1] = 0.9
+    initial_trust = agent.trust[1]
+    seed_memory(agent, memory_type=MemoryType.HEAR, source=1, claim_id=0, evidence=1.0)
+    agent.update_beliefs()
+
+    assert agent.trust[1] == pytest.approx(initial_trust)
+
+
+def test_trust_update_rate_zero_leaves_trust_unchanged():
+    """Default trust_update_rate=0.0 never mutates trust."""
+    agent = Agent(0, rng_seed=0, social_trust_update_rate=0.0)
+    agent.beliefs[0] = 0.5
+    agent.trust[1] = 0.7
+    seed_memory(agent, memory_type=MemoryType.HEAR, source=1, claim_id=0, evidence=1.0)
+    agent.update_beliefs()
+
+    assert agent.trust[1] == pytest.approx(0.7)
+
+
+# ---------------------------------------------------------------------------
+# Profile social-param integration
+# ---------------------------------------------------------------------------
+
+
+def test_agent_social_params_stored_on_init():
+    """Social parameters are stored as attributes on Agent."""
+    agent = Agent(
+        0,
+        rng_seed=0,
+        social_confidence_bound=0.4,
+        social_trust_update_rate=0.2,
+        social_update_trust_on_rejection=False,
+    )
+    assert agent.social_confidence_bound == pytest.approx(0.4)
+    assert agent.social_trust_update_rate == pytest.approx(0.2)
+    assert agent.social_update_trust_on_rejection is False
+
+
+def test_agent_social_params_defaults():
+    """Default social params preserve pre-existing behavior."""
+    agent = Agent(0, rng_seed=0)
+    assert agent.social_confidence_bound == pytest.approx(1.0)
+    assert agent.social_trust_update_rate == pytest.approx(0.0)
+    assert agent.social_update_trust_on_rejection is True
+
+
+# ---------------------------------------------------------------------------
+
+
 def test_learning_rate_heterogeneity_affects_update_magnitude():
     """Higher learning rate moves belief farther toward the same evidence."""
-    world = _build_world(2)
 
     slow = Agent(0, rng_seed=0, learning_rate=0.01)
     fast = Agent(1, rng_seed=1, learning_rate=0.5)
 
     for agent in (slow, fast):
         agent.beliefs[0] = 0.5
-        agent.add_memory(world, MemoryType.OBSERVE, claim_id=0, evidence=1.0)
+        seed_memory(agent, memory_type=MemoryType.OBSERVE, claim_id=0, evidence=1.0)
         agent.update_beliefs()
 
     # Both move toward 1.0; the faster learner moves farther.
@@ -847,7 +997,6 @@ def test_learning_rate_heterogeneity_affects_update_magnitude():
 
 def test_default_trust_heterogeneity_affects_heard_update():
     """Higher default trust gives heard evidence more weight."""
-    world = _build_world(3)
 
     low = Agent(0, rng_seed=0, default_trust=0.1)
     high = Agent(1, rng_seed=1, default_trust=0.9)
@@ -855,7 +1004,9 @@ def test_default_trust_heterogeneity_affects_heard_update():
     for agent in (low, high):
         agent.beliefs[0] = 0.5
         # source agent 2 is unseen, so trust falls back to default_trust
-        agent.add_memory(world, MemoryType.HEAR, source=2, claim_id=0, evidence=1.0)
+        seed_memory(
+            agent, memory_type=MemoryType.HEAR, source=2, claim_id=0, evidence=1.0
+        )
         agent.update_beliefs()
 
     assert high.beliefs[0] > low.beliefs[0]

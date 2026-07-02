@@ -60,6 +60,16 @@ def _validate_agent_settings(settings, *, context: str) -> None:
     if "bias" in observation and not -1 <= observation.bias <= 1:
         raise ValueError(f"{context}.observation.bias must be in [-1, 1]")
 
+    social = settings.get("social", {})
+    if "confidence_bound" in social and not 0 <= social.confidence_bound <= 1:
+        raise ValueError(f"{context}.social.confidence_bound must be in [0, 1]")
+    if "trust_update_rate" in social and not 0 <= social.trust_update_rate <= 1:
+        raise ValueError(f"{context}.social.trust_update_rate must be in [0, 1]")
+    if "update_trust_on_rejection" in social and not isinstance(
+        social.update_trust_on_rejection, bool
+    ):
+        raise ValueError(f"{context}.social.update_trust_on_rejection must be boolean")
+
 
 def _validate_profile_count(count, name: str) -> None:
     """Reject missing, non-integral, or non-positive profile counts."""
@@ -168,6 +178,14 @@ def _settings_to_agent_kwargs(settings: dict, profile_name: str) -> dict:
         kwargs["hear_weight"] = learning["hear_weight"]
     if "verify_weight" in learning:
         kwargs["verify_weight"] = learning["verify_weight"]
+
+    social = settings.get("social", {})
+    if "confidence_bound" in social:
+        kwargs["social_confidence_bound"] = social["confidence_bound"]
+    if "trust_update_rate" in social:
+        kwargs["social_trust_update_rate"] = social["trust_update_rate"]
+    if "update_trust_on_rejection" in social:
+        kwargs["social_update_trust_on_rejection"] = social["update_trust_on_rejection"]
 
     return kwargs
 

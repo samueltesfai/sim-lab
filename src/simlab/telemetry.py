@@ -54,6 +54,16 @@ class TelemetryRow:
     num_agent_updates: int
 
     # ---------------------------------------------------------------------
+    # Social dynamics
+    # ---------------------------------------------------------------------
+    mean_claim_belief_variance: float  # mean per-claim variance of agent beliefs
+    fraction_confident_wrong: (
+        float  # fraction of (agent, claim) pairs: confident AND wrong
+    )
+    mean_trust: float  # mean of all realized trust entries
+    trust_std: float  # std dev of realized trust entries
+
+    # ---------------------------------------------------------------------
     # Runtime
     # ---------------------------------------------------------------------
     step_runtime_ms: float | None = None
@@ -76,6 +86,10 @@ class TelemetryRow:
             "num_communicate_edges": self.num_communicate_edges,
             "num_broadcast_edges": self.num_broadcast_edges,
             "num_agent_updates": self.num_agent_updates,
+            "mean_claim_belief_variance": self.mean_claim_belief_variance,
+            "fraction_confident_wrong": self.fraction_confident_wrong,
+            "mean_trust": self.mean_trust,
+            "trust_std": self.trust_std,
             "step_runtime_ms": self.step_runtime_ms,
         }
 
@@ -101,7 +115,10 @@ class TelemetryRow:
             f"obs_events={self.num_observation_events} | "
             f"obs={self.num_observations} | "
             f"ver={self.num_verifications} | "
-            f"updates={self.num_agent_updates}"
+            f"updates={self.num_agent_updates} | "
+            f"bvar={self.mean_claim_belief_variance:.4f} "
+            f"conf_wrong={self.fraction_confident_wrong:.2%} "
+            f"trust_mean={self.mean_trust:.3f} trust_std={self.trust_std:.3f}"
             f"{runtime_str}"
         )
 
@@ -171,6 +188,88 @@ class Telemetry:
         var = sum((x - mean) ** 2 for x in vals) / n  # population variance
         std = math.sqrt(var)
         return mean, std, min(vals), max(vals)
+
+    @staticmethod
+    def _claim_belief_variance(
+        beliefs: dict[int, dict[int, float]],
+        claim_ids: list[int],
+    ) -> float:
+        """
+        Compute the mean per-claim variance of agent beliefs.
+
+        For each claim, compute the population variance of all agents' beliefs
+        for that claim, then average those variances across all claims.
+        """
+        if not claim_ids or not beliefs:
+            return 0.0
+
+        per_claim_variances: list[float] = []
+        for claim_id in claim_ids:
+            vals = [cb[claim_id] for cb in beliefs.values() if claim_id in cb]
+            if len(vals) < 2:
+                continue
+            mean = sum(vals) / len(vals)
+            var = sum((x - mean) ** 2 for x in vals) / len(vals)
+            per_claim_variances.append(var)
+
+        if not per_claim_variances:
+            return 0.0
+        return sum(per_claim_variances) / len(per_claim_variances)
+
+    @staticmethod
+    def _fraction_confident_wrong(
+        beliefs: dict[int, dict[int, float]],
+        truths: dict[int, bool],
+        *,
+        confidence_threshold: float = 0.5,
+    ) -> float:
+        """
+        Fraction of (agent, claim) beliefs that are both confident and wrong.
+
+        Confidence is ``abs(belief - 0.5) * 2``; a belief is "wrong" when it
+        sits on the incorrect side of 0.5 relative to the ground truth.
+        """
+        total = 0
+        confident_wrong = 0
+
+        for _agent_id, claim_beliefs in beliefs.items():
+            for claim_id, belief_value in claim_beliefs.items():
+                if claim_id not in truths:
+                    continue
+                total += 1
+                confidence = abs(belief_value - 0.5) * 2
+                if confidence < confidence_threshold:
+                    continue
+                truth = truths[claim_id]
+                if truth and belief_value < 0.5:
+                    confident_wrong += 1
+                elif not truth and belief_value > 0.5:
+                    confident_wrong += 1
+
+        if total == 0:
+            return 0.0
+        return confident_wrong / total
+
+    @staticmethod
+    def _trust_stats(agents: list) -> tuple[float, float]:
+        """
+        Compute mean and population std dev of all realized trust entries.
+
+        Only trust entries that have been explicitly set (i.e., the underlying
+        dict has been accessed at least once for that source) are included.
+        Uninitialized default trust values are excluded.
+        """
+        vals: list[float] = []
+        for agent in agents:
+            vals.extend(agent.trust.values())
+
+        if not vals:
+            return 0.0, 0.0
+
+        n = len(vals)
+        mean = sum(vals) / n
+        var = sum((x - mean) ** 2 for x in vals) / n
+        return mean, math.sqrt(var)
 
     @staticmethod
     def _delta_stats(
@@ -244,7 +343,19 @@ class Telemetry:
         ) = self._truth_alignment_stats(agent_beliefs, world.truths)
 
         # -----------------------------------------------------------------
-        # 5. Initial baseline row
+        # 5. Social dynamics metrics
+        # -----------------------------------------------------------------
+        claim_ids = list(world.truths.keys())
+        mean_claim_belief_variance = self._claim_belief_variance(
+            agent_beliefs, claim_ids
+        )
+        fraction_confident_wrong = self._fraction_confident_wrong(
+            agent_beliefs, world.truths
+        )
+        mean_trust, trust_std = self._trust_stats(world.agents)
+
+        # -----------------------------------------------------------------
+        # 6. Initial baseline row
         # No events/actions have happened yet.
         # -----------------------------------------------------------------
         row = TelemetryRow(
@@ -264,6 +375,10 @@ class Telemetry:
             num_communicate_edges=0,
             num_broadcast_edges=0,
             num_agent_updates=0,
+            mean_claim_belief_variance=mean_claim_belief_variance,
+            fraction_confident_wrong=fraction_confident_wrong,
+            mean_trust=mean_trust,
+            trust_std=trust_std,
             step_runtime_ms=None,
         )
 
@@ -324,7 +439,19 @@ class Telemetry:
         )
 
         # -----------------------------------------------------------------
-        # 4. Event/action counts + runtime
+        # 4. Social dynamics metrics
+        # -----------------------------------------------------------------
+        claim_ids = list(world.truths.keys())
+        mean_claim_belief_variance = self._claim_belief_variance(
+            snapshot.agent_beliefs, claim_ids
+        )
+        fraction_confident_wrong = self._fraction_confident_wrong(
+            snapshot.agent_beliefs, world.truths
+        )
+        mean_trust, trust_std = self._trust_stats(world.agents)
+
+        # -----------------------------------------------------------------
+        # 5. Event/action counts + runtime
         # -----------------------------------------------------------------
         row = TelemetryRow(
             tick=snapshot.tick,
@@ -343,6 +470,10 @@ class Telemetry:
             num_communicate_edges=len(snapshot.communicate_edges),
             num_broadcast_edges=len(snapshot.broadcast_edges),
             num_agent_updates=int(snapshot.n_agent_updates),
+            mean_claim_belief_variance=mean_claim_belief_variance,
+            fraction_confident_wrong=fraction_confident_wrong,
+            mean_trust=mean_trust,
+            trust_std=trust_std,
             step_runtime_ms=step_runtime_ms,
         )
 

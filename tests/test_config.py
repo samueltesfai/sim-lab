@@ -842,3 +842,155 @@ def test_validate_config_rejects_non_integral_count():
         ValueError, match="agent profile default count must be a positive integer"
     ):
         validate_config(cfg)
+
+
+# ---------------------------------------------------------------------------
+# Social param validation
+# ---------------------------------------------------------------------------
+
+
+def _social_config(social: dict) -> dict:
+    """Build a valid config dict with the given social overrides in defaults."""
+    base = _config([{"name": "default", "count": 2}])
+    base["agent"]["defaults"]["social"] = social
+    return base
+
+
+def test_validate_social_confidence_bound_valid():
+    """Valid confidence_bound values in [0, 1] pass validation."""
+    for val in [0.0, 0.5, 1.0]:
+        cfg = OmegaConf.create(_social_config({"confidence_bound": val}))
+        validate_config(cfg)  # should not raise
+
+
+def test_validate_social_confidence_bound_invalid():
+    """confidence_bound outside [0, 1] is rejected."""
+    for val in [-0.1, 1.1]:
+        cfg = OmegaConf.create(_social_config({"confidence_bound": val}))
+        with pytest.raises(
+            ValueError,
+            match="agent.defaults.social.confidence_bound must be in \\[0, 1\\]",
+        ):
+            validate_config(cfg)
+
+
+def test_validate_social_trust_update_rate_valid():
+    """Valid trust_update_rate values in [0, 1] pass validation."""
+    for val in [0.0, 0.3, 1.0]:
+        cfg = OmegaConf.create(_social_config({"trust_update_rate": val}))
+        validate_config(cfg)
+
+
+def test_validate_social_trust_update_rate_invalid():
+    """trust_update_rate outside [0, 1] is rejected."""
+    for val in [-0.01, 1.5]:
+        cfg = OmegaConf.create(_social_config({"trust_update_rate": val}))
+        with pytest.raises(
+            ValueError,
+            match="agent.defaults.social.trust_update_rate must be in \\[0, 1\\]",
+        ):
+            validate_config(cfg)
+
+
+def test_validate_social_update_trust_on_rejection_valid():
+    """Boolean update_trust_on_rejection passes validation."""
+    for val in [True, False]:
+        cfg = OmegaConf.create(_social_config({"update_trust_on_rejection": val}))
+        validate_config(cfg)
+
+
+def test_validate_social_update_trust_on_rejection_invalid():
+    """Non-boolean update_trust_on_rejection is rejected."""
+    cfg = OmegaConf.create(_social_config({"update_trust_on_rejection": "yes"}))
+    with pytest.raises(
+        ValueError,
+        match="agent.defaults.social.update_trust_on_rejection must be boolean",
+    ):
+        validate_config(cfg)
+
+
+def test_social_params_propagate_to_agents():
+    """Social params set in defaults propagate through build_world to Agent attrs."""
+    config_dict = {
+        "world": {
+            "rng_seed": 0,
+            "observation": {"private_event_rate": 0.0, "global_event_rate": 0.0},
+            "truths": {0: True},
+            "noise": {"OBSERVE": 0.0, "HEAR": 0.0, "VERIFY": 0.0},
+        },
+        "agent": {
+            "defaults": {
+                "social": {
+                    "confidence_bound": 0.4,
+                    "trust_update_rate": 0.2,
+                    "update_trust_on_rejection": False,
+                },
+            },
+            "profiles": [{"name": "default", "count": 3}],
+        },
+    }
+    world = _build_valid_world(config_dict)
+
+    for agent in world.agents:
+        assert agent.social_confidence_bound == pytest.approx(0.4)
+        assert agent.social_trust_update_rate == pytest.approx(0.2)
+        assert agent.social_update_trust_on_rejection is False
+
+
+def test_social_params_profile_overrides_defaults():
+    """Profile-level social overrides are merged on top of defaults."""
+    config_dict = {
+        "world": {
+            "rng_seed": 0,
+            "observation": {"private_event_rate": 0.0, "global_event_rate": 0.0},
+            "truths": {0: True},
+            "noise": {"OBSERVE": 0.0, "HEAR": 0.0, "VERIFY": 0.0},
+        },
+        "agent": {
+            "defaults": {
+                "social": {
+                    "confidence_bound": 1.0,
+                    "trust_update_rate": 0.0,
+                    "update_trust_on_rejection": True,
+                },
+            },
+            "profiles": [
+                {"name": "open", "count": 2},
+                {
+                    "name": "closed",
+                    "count": 2,
+                    "social": {
+                        "confidence_bound": 0.3,
+                        "trust_update_rate": 0.5,
+                        "update_trust_on_rejection": False,
+                    },
+                },
+            ],
+        },
+    }
+    world = _build_valid_world(config_dict)
+
+    open_agents = [a for a in world.agents if a.profile_name == "open"]
+    closed_agents = [a for a in world.agents if a.profile_name == "closed"]
+
+    for agent in open_agents:
+        assert agent.social_confidence_bound == pytest.approx(1.0)
+        assert agent.social_trust_update_rate == pytest.approx(0.0)
+        assert agent.social_update_trust_on_rejection is True
+
+    for agent in closed_agents:
+        assert agent.social_confidence_bound == pytest.approx(0.3)
+        assert agent.social_trust_update_rate == pytest.approx(0.5)
+        assert agent.social_update_trust_on_rejection is False
+
+
+def test_social_params_absent_uses_agent_defaults():
+    """When social section is omitted, Agent defaults (1.0 / 0.0 / True) apply."""
+    cfg = OmegaConf.create(_config([{"name": "default", "count": 2}]))
+    validate_config(cfg)
+    world = build_world(cfg)
+
+    for agent in world.agents:
+        assert agent.social_confidence_bound == pytest.approx(1.0)
+        assert agent.social_trust_update_rate == pytest.approx(0.0)
+        assert agent.social_update_trust_on_rejection is True
