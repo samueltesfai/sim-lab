@@ -381,3 +381,44 @@ def test_world_step_does_not_print_logs():
         sys.stdout = old_stdout
 
     assert output == ""
+
+
+def test_execute_action_verify_returns_trace():
+    world = _build_world(2)
+    agent = world.get_agent(0)
+
+    trace = world._execute_action(agent, Action(ActionType.VERIFY, claim_id=0))
+
+    assert trace.verified_ids == [0]
+    assert trace.communicate_edges == []
+    assert trace.broadcast_edges == []
+
+
+def test_execute_action_communicate_returns_trace():
+    world = _build_world(2)
+    world.network[0] = [1]
+    sender = world.get_agent(0)
+
+    trace = world._execute_action(
+        sender,
+        Action(ActionType.COMMUNICATE, claim_id=0, target_agent_id=1),
+    )
+
+    assert trace.verified_ids == []
+    assert trace.communicate_edges == [(0, 1)]
+    assert trace.broadcast_edges == []
+
+
+def test_execute_action_broadcast_returns_trace():
+    world = _build_world(3)
+    world.network[0] = [1, 2]
+    sender = world.get_agent(0)
+
+    trace = world._execute_action(
+        sender,
+        Action(ActionType.BROADCAST, claim_id=0),
+    )
+
+    assert trace.verified_ids == []
+    assert trace.communicate_edges == []
+    assert trace.broadcast_edges == [(0, 1), (0, 2)]
