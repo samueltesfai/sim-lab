@@ -17,8 +17,16 @@ The canonical config format uses exactly three top-level pieces:
 - `agent.defaults`
 - `agent.profiles`
 
-There is no flat agent form and no separate `world.num_agents`; the population
-size is the sum of the profile counts.
+Configs are loaded with `load_config(path)`, which parses the YAML and runs
+`validate_config`. `build_world(cfg)` then expands `agent.defaults` +
+`agent.profiles` into concrete `Agent` instances and constructs the `World`.
+
+```python
+from simlab.config import load_config, build_world
+
+cfg = load_config("configs/heterogeneous.yaml")
+world = build_world(cfg)
+```
 
 For the conceptual meaning of these parameters (what observation, trust,
 learning, etc. actually *do*), see [`docs/model.md`](model.md). This document is
@@ -27,8 +35,6 @@ the schema/reference for writing a scenario.
 ## Table of Contents
 
 - [Configuration Reference](#configuration-reference)
-  - [Table of Contents](#table-of-contents)
-  - [Overview](#overview)
   - [Minimal Config](#minimal-config)
   - [Top-Level Schema](#top-level-schema)
   - [`world`](#world)
@@ -43,6 +49,9 @@ the schema/reference for writing a scenario.
       - [`observation.attention`](#observationattention)
       - [`observation.bias`](#observationbias)
       - [`trust.default`](#trustdefault)
+      - [`social.confidence_bound`](#socialconfidence_bound)
+      - [`social.trust_update_rate`](#socialtrust_update_rate)
+      - [`social.update_trust_on_rejection`](#socialupdate_trust_on_rejection)
       - [`learning.rate`](#learningrate)
       - [`learning.observe_weight`](#learningobserve_weight)
       - [`learning.hear_weight`](#learninghear_weight)
@@ -56,19 +65,6 @@ the schema/reference for writing a scenario.
   - [Validation Rules](#validation-rules)
   - [Example: Homogeneous Population](#example-homogeneous-population)
   - [Example: Heterogeneous Population](#example-heterogeneous-population)
-
-## Overview
-
-Configs are loaded with `load_config(path)`, which parses the YAML and runs
-`validate_config`. `build_world(cfg)` then expands `agent.defaults` +
-`agent.profiles` into concrete `Agent` instances and constructs the `World`.
-
-```python
-from simlab.config import load_config, build_world
-
-cfg = load_config("configs/heterogeneous.yaml")
-world = build_world(cfg)
-```
 
 ## Minimal Config
 
@@ -222,6 +218,29 @@ use small values like `-0.1`, `0.0`, or `0.1`.
 Float. Trust assigned to otherwise-unseen source agents; modulates the weight of
 heard evidence. Default `0.5`.
 
+#### `social.confidence_bound`
+
+Float in `[0, 1]`. Maximum distance (`|heard evidence - current belief|`)
+at which a `HEAR` memory is still accepted for belief updating. Heard
+evidence further than this from the agent's current belief is treated as
+implausible and contributes an effective learning rate of `0.0` for that
+memory. Default `1.0` (no bound — all heard evidence is accepted).
+
+#### `social.trust_update_rate`
+
+Float in `[0, 1]`. Rate at which trust in a `HEAR` memory's source is
+adjusted toward the agent's observed agreement with that source
+(`1 - |heard evidence - belief before update|`), each time a `HEAR` memory
+is processed. `0.0` (the default) disables dynamic trust updates, leaving
+trust fixed at `trust.default` (or its per-source value) for the whole run.
+
+#### `social.update_trust_on_rejection`
+
+Boolean. Whether trust toward a source is still updated when its `HEAR`
+memory was rejected by `social.confidence_bound`. Default `true`. Set to
+`false` to only adjust trust from accepted (in-bound) heard evidence. No
+effect when `social.trust_update_rate` is `0.0`.
+
 #### `learning.rate`
 
 Float. Global plasticity — the base learning rate applied to all belief updates
@@ -289,7 +308,7 @@ format.
 #### profile overrides and deep-merge
 
 Beyond `name` and `count`, a profile may include any subset of the agent
-settings (`observation`, `trust`, `learning`, `action_preference`,
+settings (`observation`, `trust`, `social`, `learning`, `action_preference`,
 `action_cost`). These are **deep-merged** onto `agent.defaults`:
 
 - nested maps (e.g. `observation`, `learning`) merge key-by-key, so a profile
@@ -315,11 +334,14 @@ The homogeneous case is simply a single profile that adds no overrides.
 | `agent.profiles[*].count`               | required, `> 0`                       |
 | `*.observation.attention`               | in `[0, 1]`                           |
 | `*.observation.bias`                    | in `[-1, 1]`                          |
+| `*.social.confidence_bound`             | in `[0, 1]`                           |
+| `*.social.trust_update_rate`            | in `[0, 1]`                           |
+| `*.social.update_trust_on_rejection`    | must be boolean                       |
 | `*.action_preference.<ACTION>`          | known action; value in `[0, 1]`       |
 | `*.action_cost.<ACTION>`                | known action; value `>= 0`            |
 
-`observation`, `action_preference`, and `action_cost` rules apply to both
-`agent.defaults` and every profile node.
+`observation`, `social`, `action_preference`, and `action_cost` rules apply to
+both `agent.defaults` and every profile node.
 
 ## Example: Homogeneous Population
 
@@ -377,6 +399,7 @@ agent:
   defaults:
     observation: { attention: 1.0, bias: 0.0 }
     trust: { default: 0.5 }
+    social: { confidence_bound: 1.0, trust_update_rate: 0.0, update_trust_on_rejection: true }
     learning: { rate: 0.1, observe_weight: 0.6, hear_weight: 0.3, verify_weight: 1.0 }
     action_preference: { IDLE: 0.0, VERIFY: 0.9, COMMUNICATE: 0.7, BROADCAST: 0.5 }
     action_cost: { IDLE: 0.0, VERIFY: 0.35, COMMUNICATE: 0.15, BROADCAST: 0.30 }
@@ -393,8 +416,14 @@ agent:
     - name: skeptical
       count: 10
       trust: { default: 0.25 }
+      social: { confidence_bound: 0.4, trust_update_rate: 0.1 }
       learning: { hear_weight: 0.15, verify_weight: 1.2 }
       action_preference: { VERIFY: 1.0, COMMUNICATE: 0.35, BROADCAST: 0.2 }
 ```
+
+The `skeptical` profile also narrows `social.confidence_bound` to `0.4`
+(rejecting heard evidence far from its current belief) and enables dynamic
+trust updates via `social.trust_update_rate: 0.1`, so skeptics gradually trust
+sources that agree with them less than the defaults would.
 
 This run has `20 + 20 + 10 = 50` agents.
