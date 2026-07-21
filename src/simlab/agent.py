@@ -377,13 +377,19 @@ class Agent:
             return MemoryProcessTrace()
 
         belief_before = self.beliefs[mem.claim_id]
-        lr = clamp(self._effective_learning_rate(mem, belief_before))
+
+        accepted = (
+            self._should_accept_heard_memory(mem, belief_before)
+            if mem.type == MemoryType.HEAR
+            else None
+        )
+
+        lr = clamp(self._effective_learning_rate(mem, belief_before, accepted))
         belief_after = clamp(belief_before + lr * (mem.evidence - belief_before))
         self.beliefs[mem.claim_id] = belief_after
 
         trust_changed = False
         if mem.type == MemoryType.HEAR:
-            accepted = self._should_accept_heard_memory(mem, belief_before)
             trust_changed = self._update_trust_from_heard_memory(
                 mem, belief_before, accepted
             )
@@ -393,17 +399,22 @@ class Agent:
             trust_changed=trust_changed,
         )
 
-    def _effective_learning_rate(self, mem: Memory, belief_before: float) -> float:
+    def _effective_learning_rate(
+        self, mem: Memory, belief_before: float, accepted: bool | None
+    ) -> float:
         """
         Compute the effective learning rate for a memory before clamping.
 
-        For HEAR memories, returns 0.0 when the heard evidence falls outside
-        the agent's social confidence bound.
+        For HEAR memories, returns 0.0 when ``accepted`` is False, i.e. the
+        heard evidence fell outside the agent's social confidence bound.
 
         :param mem: The memory being processed
         :type mem: Memory
         :param belief_before: The agent's belief for the claim before this update
         :type belief_before: float
+        :param accepted: For HEAR memories, whether bounded confidence accepted
+            the evidence (see ``_should_accept_heard_memory``); unused otherwise.
+        :type accepted: bool | None
         :return: Raw (unclamped) effective learning rate
         :rtype: float
         """
@@ -413,9 +424,7 @@ class Agent:
             case MemoryType.VERIFY:
                 return self.learning_rate * self.verify_weight
             case MemoryType.HEAR:
-                if mem.source is None:
-                    return 0.0
-                if not self._should_accept_heard_memory(mem, belief_before):
+                if mem.source is None or not accepted:
                     return 0.0
                 return self.learning_rate * self.hear_weight * self.trust[mem.source]
             case _:

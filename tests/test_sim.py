@@ -2,6 +2,7 @@ def test_sim_facade_exports_public_api():
     """simlab.sim is a compatibility facade; guard its public import surface."""
     from simlab.sim import (
         Agent,
+        AgentUpdateTrace,
         World,
         Action,
         ActionTrace,
@@ -14,6 +15,7 @@ def test_sim_facade_exports_public_api():
     )
 
     assert Agent is not None
+    assert AgentUpdateTrace is not None
     assert World is not None
     assert Action is not None
     assert ActionTrace is not None
