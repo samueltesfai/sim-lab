@@ -352,7 +352,9 @@ class World:
         verified_ids: list[int] = []
         communicate_edges: list[tuple[int, int]] = []
         broadcast_edges: list[tuple[int, int]] = []
-        agent_updates = 0
+        num_memory_processing_agents = 0
+        num_belief_updating_agents = 0
+        num_trust_updating_agents = 0
 
         for agent in self.agents:
             action = agent.choose_action(self)
@@ -364,7 +366,10 @@ class World:
 
         # Update beliefs for all agents with new memories
         for agent in self.agents:
-            agent_updates += agent.update_beliefs()
+            update_trace = agent.update_beliefs()
+            num_memory_processing_agents += int(update_trace.processed_memory)
+            num_belief_updating_agents += int(update_trace.belief_changed)
+            num_trust_updating_agents += int(update_trace.trust_changed)
 
         # Create full belief snapshot for all agents and all claims
         beliefs = self.get_agent_beliefs_snapshot()
@@ -376,7 +381,9 @@ class World:
             verified_ids=verified_ids,
             communicate_edges=communicate_edges,
             broadcast_edges=broadcast_edges,
-            n_agent_updates=agent_updates,
+            num_memory_processing_agents=num_memory_processing_agents,
+            num_belief_updating_agents=num_belief_updating_agents,
+            num_trust_updating_agents=num_trust_updating_agents,
             agent_beliefs=beliefs,
             agent_memory_sizes={agent.id: agent.memory_size for agent in self.agents},
         )

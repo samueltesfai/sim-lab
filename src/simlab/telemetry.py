@@ -51,7 +51,15 @@ class TelemetryRow:
     num_verifications: int
     num_communicate_edges: int
     num_broadcast_edges: int
-    num_agent_updates: int
+
+    # num_memory_processing_agents: agents that processed >=1 new memory this tick
+    # num_belief_updating_agents: agents whose belief values changed this tick
+    # num_trust_updating_agents: agents whose trust values changed this tick
+    #   (may be nonzero even when no belief moved, since a rejected HEAR memory
+    #   can still update trust in bounded-confidence social dynamics)
+    num_memory_processing_agents: int
+    num_belief_updating_agents: int
+    num_trust_updating_agents: int
 
     # ---------------------------------------------------------------------
     # Social dynamics
@@ -85,7 +93,9 @@ class TelemetryRow:
             "num_verifications": self.num_verifications,
             "num_communicate_edges": self.num_communicate_edges,
             "num_broadcast_edges": self.num_broadcast_edges,
-            "num_agent_updates": self.num_agent_updates,
+            "num_memory_processing_agents": self.num_memory_processing_agents,
+            "num_belief_updating_agents": self.num_belief_updating_agents,
+            "num_trust_updating_agents": self.num_trust_updating_agents,
             "mean_claim_belief_variance": self.mean_claim_belief_variance,
             "fraction_confident_wrong": self.fraction_confident_wrong,
             "mean_trust": self.mean_trust,
@@ -115,7 +125,9 @@ class TelemetryRow:
             f"obs_events={self.num_observation_events} | "
             f"obs={self.num_observations} | "
             f"ver={self.num_verifications} | "
-            f"updates={self.num_agent_updates} | "
+            f"mem_proc={self.num_memory_processing_agents} "
+            f"belief_upd={self.num_belief_updating_agents} "
+            f"trust_upd={self.num_trust_updating_agents} | "
             f"bvar={self.mean_claim_belief_variance:.4f} "
             f"conf_wrong={self.fraction_confident_wrong:.2%} "
             f"trust_mean={self.mean_trust:.3f} trust_std={self.trust_std:.3f}"
@@ -374,7 +386,9 @@ class Telemetry:
             num_verifications=0,
             num_communicate_edges=0,
             num_broadcast_edges=0,
-            num_agent_updates=0,
+            num_memory_processing_agents=0,
+            num_belief_updating_agents=0,
+            num_trust_updating_agents=0,
             mean_claim_belief_variance=mean_claim_belief_variance,
             fraction_confident_wrong=fraction_confident_wrong,
             mean_trust=mean_trust,
@@ -469,7 +483,9 @@ class Telemetry:
             num_verifications=len(snapshot.verified_ids),
             num_communicate_edges=len(snapshot.communicate_edges),
             num_broadcast_edges=len(snapshot.broadcast_edges),
-            num_agent_updates=int(snapshot.n_agent_updates),
+            num_memory_processing_agents=snapshot.num_memory_processing_agents,
+            num_belief_updating_agents=snapshot.num_belief_updating_agents,
+            num_trust_updating_agents=snapshot.num_trust_updating_agents,
             mean_claim_belief_variance=mean_claim_belief_variance,
             fraction_confident_wrong=fraction_confident_wrong,
             mean_trust=mean_trust,

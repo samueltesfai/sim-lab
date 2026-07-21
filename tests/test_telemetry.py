@@ -28,7 +28,9 @@ def test_record_populates_latest_and_history():
     assert row.num_verifications == len(snapshot.verified_ids)
     assert row.num_communicate_edges == len(snapshot.communicate_edges)
     assert row.num_broadcast_edges == len(snapshot.broadcast_edges)
-    assert row.num_agent_updates == snapshot.n_agent_updates
+    assert row.num_memory_processing_agents == snapshot.num_memory_processing_agents
+    assert row.num_belief_updating_agents == snapshot.num_belief_updating_agents
+    assert row.num_trust_updating_agents == snapshot.num_trust_updating_agents
 
 
 def test_record_computes_global_belief_metrics():
@@ -190,7 +192,9 @@ def test_format_telemetry_row_includes_core_fields():
     assert f"bcast={row.num_broadcast_edges}" in formatted
     assert f"obs={row.num_observations}" in formatted
     assert f"ver={row.num_verifications}" in formatted
-    assert f"updates={row.num_agent_updates}" in formatted
+    assert f"mem_proc={row.num_memory_processing_agents}" in formatted
+    assert f"belief_upd={row.num_belief_updating_agents}" in formatted
+    assert f"trust_upd={row.num_trust_updating_agents}" in formatted
     assert f"runtime={row.step_runtime_ms:.3f}ms" in formatted
 
 
@@ -224,7 +228,9 @@ def test_record_initial_creates_baseline_row():
     assert row.num_verifications == 0
     assert row.num_communicate_edges == 0
     assert row.num_broadcast_edges == 0
-    assert row.num_agent_updates == 0
+    assert row.num_memory_processing_agents == 0
+    assert row.num_belief_updating_agents == 0
+    assert row.num_trust_updating_agents == 0
 
     # Deltas should be zero (no prior state)
     assert row.mean_abs_delta == 0.0

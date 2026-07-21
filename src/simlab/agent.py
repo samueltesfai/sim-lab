@@ -7,7 +7,9 @@ from typing import TYPE_CHECKING
 from simlab.types import (
     Action,
     ActionType,
+    AgentUpdateTrace,
     Memory,
+    MemoryProcessTrace,
     MemoryType,
     ObservationEvent,
     clamp,
@@ -334,7 +336,7 @@ class Agent:
             key=lambda action: self.score_action(world, action),
         )
 
-    def update_beliefs(self) -> bool:
+    def update_beliefs(self) -> AgentUpdateTrace:
         """
         Update the agent's beliefs based on accumulated memories.
 
@@ -343,44 +345,53 @@ class Agent:
         further modulated by trust for socially heard memories. HEAR memories
         are additionally subject to bounded confidence and dynamic trust updates.
 
-        All newly accumulated memories are consumed regardless of the return
-        value; trust may still change for HEAR memories even when no belief
-        moves.
+        All newly accumulated memories are consumed regardless of the returned
+        trace; trust may still change for HEAR memories even when no belief
+        moves, and rejected HEAR memories may still update trust without ever
+        moving belief. These are tracked as distinct outcomes because they
+        measure different simulation phenomena.
 
         :param self:
-        :return: True if at least one belief value changed, False otherwise
-        :rtype: bool
+        :return: A trace of which agent-level effects occurred this tick
+        :rtype: AgentUpdateTrace
         """
-        belief_changed = False
+        trace = AgentUpdateTrace()
         while self._mem_cursor < len(self.memory):
-            mem = self.memory[self._mem_cursor]
-            if self._process_memory(mem):
-                belief_changed = True
+            trace.processed_memory = True
+            mem_trace = self._process_memory(self.memory[self._mem_cursor])
+            trace.belief_changed |= mem_trace.belief_changed
+            trace.trust_changed |= mem_trace.trust_changed
             self._mem_cursor += 1
-        return belief_changed
+        return trace
 
-    def _process_memory(self, mem: Memory) -> bool:
+    def _process_memory(self, mem: Memory) -> MemoryProcessTrace:
         """
         Apply a single memory to beliefs, with trust side-effects for HEAR.
 
         :param mem: The memory to process
         :type mem: Memory
-        :return: True if the belief value for the memory's claim changed
-        :rtype: bool
+        :return: A trace of which effects this memory caused
+        :rtype: MemoryProcessTrace
         """
         if mem.claim_id is None or mem.evidence is None:
-            return False
+            return MemoryProcessTrace()
 
         belief_before = self.beliefs[mem.claim_id]
         lr = clamp(self._effective_learning_rate(mem, belief_before))
         belief_after = clamp(belief_before + lr * (mem.evidence - belief_before))
         self.beliefs[mem.claim_id] = belief_after
 
+        trust_changed = False
         if mem.type == MemoryType.HEAR:
             accepted = self._should_accept_heard_memory(mem, belief_before)
-            self._update_trust_from_heard_memory(mem, belief_before, accepted)
+            trust_changed = self._update_trust_from_heard_memory(
+                mem, belief_before, accepted
+            )
 
-        return belief_after != belief_before
+        return MemoryProcessTrace(
+            belief_changed=belief_after != belief_before,
+            trust_changed=trust_changed,
+        )
 
     def _effective_learning_rate(self, mem: Memory, belief_before: float) -> float:
         """
@@ -429,7 +440,7 @@ class Agent:
         mem: Memory,
         belief_before: float,
         accepted: bool,
-    ) -> None:
+    ) -> bool:
         """
         Update trust in the source agent based on agreement with heard evidence.
 
@@ -442,15 +453,18 @@ class Agent:
         :type belief_before: float
         :param accepted: Whether the memory was accepted by bounded confidence
         :type accepted: bool
+        :return: True if the trust value for the memory's source changed
+        :rtype: bool
         """
         if self.social_trust_update_rate == 0.0:
-            return
+            return False
         if not accepted and not self.social_update_trust_on_rejection:
-            return
+            return False
         if mem.source is None:
-            return
+            return False
+        trust_before = self.trust[mem.source]
         agreement = 1.0 - abs(mem.evidence - belief_before)
-        trust_delta = self.social_trust_update_rate * (
-            agreement - self.trust[mem.source]
-        )
-        self.trust[mem.source] = clamp(self.trust[mem.source] + trust_delta)
+        trust_delta = self.social_trust_update_rate * (agreement - trust_before)
+        trust_after = clamp(trust_before + trust_delta)
+        self.trust[mem.source] = trust_after
+        return trust_after != trust_before

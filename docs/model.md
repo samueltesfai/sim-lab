@@ -541,7 +541,10 @@ The `Snapshot` contains:
 - communication edges and broadcast edges
 - full belief state for all agents and claims
 - agent memory sizes
-- number of agent belief updates
+- three agent-update counts: how many agents processed a new memory, how many
+  had a belief value change, and how many had a trust value change this tick.
+  These can diverge — a HEAR memory rejected by bounded confidence can still
+  update trust without moving belief (see [Trust](#trust)).
 
 The snapshot is consumed by visualization and telemetry but does not affect
 simulation behavior.

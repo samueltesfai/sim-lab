@@ -83,7 +83,9 @@ class Snapshot:
     broadcast_edges: list[
         tuple[int, int]
     ]  # List of (source, target) agent pairs that broadcasted this tick
-    n_agent_updates: int  # Number of agents that updated this tick
+    num_memory_processing_agents: int  # Agents that processed >=1 new memory this tick
+    num_belief_updating_agents: int  # Agents whose belief values changed this tick
+    num_trust_updating_agents: int  # Agents whose trust values changed this tick
     agent_beliefs: dict[int, dict[int, float]]  # {agent_id: {claim_id: belief}}
     agent_memory_sizes: dict[int, int]  # {agent_id: memory_size}
 
@@ -95,3 +97,22 @@ class ActionTrace:
     verified_ids: list[int] = field(default_factory=list)
     communicate_edges: list[tuple[int, int]] = field(default_factory=list)
     broadcast_edges: list[tuple[int, int]] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class MemoryProcessTrace:
+    """Records the effect of processing a single memory, for accumulation in
+    Agent.update_beliefs()."""
+
+    belief_changed: bool = False
+    trust_changed: bool = False
+
+
+@dataclass(slots=True)
+class AgentUpdateTrace:
+    """Records what Agent.update_beliefs() did this tick, for accumulation in
+    World.step()."""
+
+    processed_memory: bool = False
+    belief_changed: bool = False
+    trust_changed: bool = False

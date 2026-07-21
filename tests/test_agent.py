@@ -5,7 +5,6 @@ from collections import defaultdict
 from simlab.agent import Agent
 from simlab.world import World
 from simlab.types import Action, ActionType, Memory, MemoryType, ObservationEvent
-from tests.helpers import seed_memory
 
 
 def _build_world(n: int = 5) -> World:
@@ -108,12 +107,12 @@ def test_agent_memory_size():
     assert agent.memory_size == 2
 
 
-def test_add_memory_records_fields():
+def test_add_memory_records_fields(memory_seeder):
     """Agent._add_memory stores evidence with the provided metadata."""
     world = _build_world(2)
     agent = world.get_agent(0)
 
-    seed_memory(
+    memory_seeder(
         agent, memory_type=MemoryType.OBSERVE, claim_id=0, evidence=0.8, tick=world.tick
     )
     memory = agent.memory[-1]
@@ -123,12 +122,14 @@ def test_add_memory_records_fields():
     assert memory.timestamp == world.tick
     assert memory.evidence == 0.8
 
-    seed_memory(agent, memory_type=MemoryType.VERIFY, claim_id=0, evidence=1.0)
+    memory_seeder(agent, memory_type=MemoryType.VERIFY, claim_id=0, evidence=1.0)
     memory = agent.memory[-1]
     assert memory.type == MemoryType.VERIFY
     assert memory.claim_id == 0
 
-    seed_memory(agent, memory_type=MemoryType.HEAR, source=1, claim_id=0, evidence=0.4)
+    memory_seeder(
+        agent, memory_type=MemoryType.HEAR, source=1, claim_id=0, evidence=0.4
+    )
     memory = agent.memory[-1]
     assert memory.type == MemoryType.HEAR
     assert memory.source == 1
@@ -303,41 +304,45 @@ def test_agent_choose_action():
 # ---------------------------------------------------------------------------
 
 
-def test_agent_update_beliefs():
+def test_agent_update_beliefs(memory_seeder):
     """Test agent belief updates."""
     world = _build_world(1)
     agent = world.get_agent(0)
 
     agent.beliefs[0] = 0.5
-    seed_memory(agent, memory_type=MemoryType.VERIFY, claim_id=0, evidence=1.0)
+    memory_seeder(agent, memory_type=MemoryType.VERIFY, claim_id=0, evidence=1.0)
 
-    assert agent.update_beliefs()
+    trace = agent.update_beliefs()
+    assert trace.processed_memory
+    assert trace.belief_changed
     assert 0.0 <= agent.beliefs[0] <= 1.0
 
-    assert not agent.update_beliefs()
+    trace = agent.update_beliefs()
+    assert not trace.processed_memory
+    assert not trace.belief_changed
 
 
-def test_learning_rate_heterogeneity_affects_update_magnitude():
+def test_learning_rate_heterogeneity_affects_update_magnitude(memory_seeder):
     """Higher learning rate moves belief farther toward the same evidence."""
     slow = Agent(0, rng_seed=0, learning_rate=0.01)
     fast = Agent(1, rng_seed=1, learning_rate=0.5)
 
     for agent in (slow, fast):
         agent.beliefs[0] = 0.5
-        seed_memory(agent, memory_type=MemoryType.OBSERVE, claim_id=0, evidence=1.0)
+        memory_seeder(agent, memory_type=MemoryType.OBSERVE, claim_id=0, evidence=1.0)
         agent.update_beliefs()
 
     assert fast.beliefs[0] > slow.beliefs[0]
 
 
-def test_default_trust_heterogeneity_affects_heard_update():
+def test_default_trust_heterogeneity_affects_heard_update(memory_seeder):
     """Higher default trust gives heard evidence more weight."""
     low = Agent(0, rng_seed=0, default_trust=0.1)
     high = Agent(1, rng_seed=1, default_trust=0.9)
 
     for agent in (low, high):
         agent.beliefs[0] = 0.5
-        seed_memory(
+        memory_seeder(
             agent, memory_type=MemoryType.HEAR, source=2, claim_id=0, evidence=1.0
         )
         agent.update_beliefs()
@@ -382,54 +387,58 @@ def test_attention_edge_cases_do_not_perturb_belief_rng():
 # ---------------------------------------------------------------------------
 
 
-def test_hear_inside_confidence_bound_updates_belief():
+def test_hear_inside_confidence_bound_updates_belief(memory_seeder):
     """HEAR within the confidence bound updates the belief normally."""
     agent = Agent(0, rng_seed=0, social_confidence_bound=1.0)
     agent.beliefs[0] = 0.5
-    seed_memory(agent, memory_type=MemoryType.HEAR, source=1, claim_id=0, evidence=0.8)
+    memory_seeder(
+        agent, memory_type=MemoryType.HEAR, source=1, claim_id=0, evidence=0.8
+    )
     agent.update_beliefs()
 
     assert agent.beliefs[0] > 0.5
 
 
-def test_hear_outside_confidence_bound_does_not_update_belief():
+def test_hear_outside_confidence_bound_does_not_update_belief(memory_seeder):
     """HEAR farther than the confidence bound leaves the belief unchanged."""
     agent = Agent(0, rng_seed=0, social_confidence_bound=0.1)
     agent.beliefs[0] = 0.5
-    seed_memory(agent, memory_type=MemoryType.HEAR, source=1, claim_id=0, evidence=1.0)
+    memory_seeder(
+        agent, memory_type=MemoryType.HEAR, source=1, claim_id=0, evidence=1.0
+    )
     agent.update_beliefs()
 
     assert agent.beliefs[0] == pytest.approx(0.5)
 
 
-def test_observe_unaffected_by_confidence_bound():
+def test_observe_unaffected_by_confidence_bound(memory_seeder):
     """Bounded confidence applies only to HEAR; OBSERVE is always processed."""
     agent = Agent(0, rng_seed=0, social_confidence_bound=0.0)
     agent.beliefs[0] = 0.5
-    seed_memory(agent, memory_type=MemoryType.OBSERVE, claim_id=0, evidence=1.0)
+    memory_seeder(agent, memory_type=MemoryType.OBSERVE, claim_id=0, evidence=1.0)
     agent.update_beliefs()
 
     assert agent.beliefs[0] > 0.5
 
 
-def test_verify_unaffected_by_confidence_bound():
+def test_verify_unaffected_by_confidence_bound(memory_seeder):
     """Bounded confidence applies only to HEAR; VERIFY is always processed."""
     agent = Agent(0, rng_seed=0, social_confidence_bound=0.0)
     agent.beliefs[0] = 0.5
-    seed_memory(agent, memory_type=MemoryType.VERIFY, claim_id=0, evidence=1.0)
+    memory_seeder(agent, memory_type=MemoryType.VERIFY, claim_id=0, evidence=1.0)
     agent.update_beliefs()
 
     assert agent.beliefs[0] > 0.5
 
 
-def test_confidence_bound_default_preserves_behavior():
+def test_confidence_bound_default_preserves_behavior(memory_seeder):
     """Default confidence_bound=1.0 never rejects HEAR evidence (max distance is 1)."""
     agent_default = Agent(0, rng_seed=0)
     agent_open = Agent(0, rng_seed=0, social_confidence_bound=1.0)
 
     for agent in (agent_default, agent_open):
         agent.beliefs[0] = 0.3
-        seed_memory(
+        memory_seeder(
             agent, memory_type=MemoryType.HEAR, source=1, claim_id=0, evidence=0.9
         )
         agent.update_beliefs()
@@ -442,7 +451,7 @@ def test_confidence_bound_default_preserves_behavior():
 # ---------------------------------------------------------------------------
 
 
-def test_trust_increases_when_agreement_exceeds_current_trust():
+def test_trust_increases_when_agreement_exceeds_current_trust(memory_seeder):
     """Trust increases when the source agrees more than the current trust level."""
     agent = Agent(
         0,
@@ -452,13 +461,15 @@ def test_trust_increases_when_agreement_exceeds_current_trust():
     )
     agent.beliefs[0] = 0.5
     agent.trust[1] = 0.2
-    seed_memory(agent, memory_type=MemoryType.HEAR, source=1, claim_id=0, evidence=0.5)
+    memory_seeder(
+        agent, memory_type=MemoryType.HEAR, source=1, claim_id=0, evidence=0.5
+    )
     agent.update_beliefs()
 
     assert agent.trust[1] > 0.2
 
 
-def test_trust_decreases_when_agreement_below_current_trust():
+def test_trust_decreases_when_agreement_below_current_trust(memory_seeder):
     """Trust decreases when the source agrees less than the current trust level."""
     agent = Agent(
         0,
@@ -468,13 +479,15 @@ def test_trust_decreases_when_agreement_below_current_trust():
     )
     agent.beliefs[0] = 0.5
     agent.trust[1] = 0.9
-    seed_memory(agent, memory_type=MemoryType.HEAR, source=1, claim_id=0, evidence=1.0)
+    memory_seeder(
+        agent, memory_type=MemoryType.HEAR, source=1, claim_id=0, evidence=1.0
+    )
     agent.update_beliefs()
 
     assert agent.trust[1] < 0.9
 
 
-def test_rejected_hear_updates_trust_when_flag_true():
+def test_rejected_hear_updates_trust_when_flag_true(memory_seeder):
     """Rejected HEAR updates trust when update_trust_on_rejection=True."""
     agent = Agent(
         0,
@@ -486,13 +499,15 @@ def test_rejected_hear_updates_trust_when_flag_true():
     agent.beliefs[0] = 0.5
     agent.trust[1] = 0.9
     initial_trust = agent.trust[1]
-    seed_memory(agent, memory_type=MemoryType.HEAR, source=1, claim_id=0, evidence=1.0)
+    memory_seeder(
+        agent, memory_type=MemoryType.HEAR, source=1, claim_id=0, evidence=1.0
+    )
     agent.update_beliefs()
 
     assert agent.trust[1] != pytest.approx(initial_trust)
 
 
-def test_rejected_hear_does_not_update_trust_when_flag_false():
+def test_rejected_hear_does_not_update_trust_when_flag_false(memory_seeder):
     """Rejected HEAR does not update trust when update_trust_on_rejection=False."""
     agent = Agent(
         0,
@@ -504,18 +519,22 @@ def test_rejected_hear_does_not_update_trust_when_flag_false():
     agent.beliefs[0] = 0.5
     agent.trust[1] = 0.9
     initial_trust = agent.trust[1]
-    seed_memory(agent, memory_type=MemoryType.HEAR, source=1, claim_id=0, evidence=1.0)
+    memory_seeder(
+        agent, memory_type=MemoryType.HEAR, source=1, claim_id=0, evidence=1.0
+    )
     agent.update_beliefs()
 
     assert agent.trust[1] == pytest.approx(initial_trust)
 
 
-def test_trust_update_rate_zero_leaves_trust_unchanged():
+def test_trust_update_rate_zero_leaves_trust_unchanged(memory_seeder):
     """Default trust_update_rate=0.0 never mutates trust."""
     agent = Agent(0, rng_seed=0, social_trust_update_rate=0.0)
     agent.beliefs[0] = 0.5
     agent.trust[1] = 0.7
-    seed_memory(agent, memory_type=MemoryType.HEAR, source=1, claim_id=0, evidence=1.0)
+    memory_seeder(
+        agent, memory_type=MemoryType.HEAR, source=1, claim_id=0, evidence=1.0
+    )
     agent.update_beliefs()
 
     assert agent.trust[1] == pytest.approx(0.7)

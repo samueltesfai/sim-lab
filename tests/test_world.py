@@ -338,7 +338,9 @@ def test_world_step():
     assert isinstance(snapshot.verified_ids, list)
     assert isinstance(snapshot.communicate_edges, list)
     assert isinstance(snapshot.broadcast_edges, list)
-    assert isinstance(snapshot.n_agent_updates, int)
+    assert isinstance(snapshot.num_memory_processing_agents, int)
+    assert isinstance(snapshot.num_belief_updating_agents, int)
+    assert isinstance(snapshot.num_trust_updating_agents, int)
     assert isinstance(snapshot.agent_beliefs, dict)
     assert isinstance(snapshot.agent_memory_sizes, dict)
 
@@ -422,3 +424,95 @@ def test_execute_action_broadcast_returns_trace():
     assert trace.verified_ids == []
     assert trace.communicate_edges == []
     assert trace.broadcast_edges == [(0, 1), (0, 2)]
+
+
+def test_step_accumulates_verify_trace(mocker):
+    """World.step() aggregates a per-agent VERIFY ActionTrace into the Snapshot."""
+    world = _build_world(2)
+    world.private_event_rate = 0.0
+    world.global_event_rate = 0.0
+
+    a0 = world.get_agent(0)
+    a1 = world.get_agent(1)
+
+    mocker.patch.object(
+        a0,
+        "choose_action",
+        return_value=Action(ActionType.VERIFY, claim_id=0),
+    )
+    mocker.patch.object(
+        a1,
+        "choose_action",
+        return_value=Action(ActionType.IDLE),
+    )
+
+    snapshot = world.step()
+
+    assert snapshot.verified_ids == [0]
+    assert snapshot.communicate_edges == []
+    assert snapshot.broadcast_edges == []
+
+
+def test_step_accumulates_communicate_trace(mocker):
+    """World.step() aggregates a per-agent COMMUNICATE ActionTrace into the Snapshot."""
+    world = _build_world(2)
+    world.private_event_rate = 0.0
+    world.global_event_rate = 0.0
+    world.network[0] = [1]
+
+    a0 = world.get_agent(0)
+    a1 = world.get_agent(1)
+
+    mocker.patch.object(
+        a0,
+        "choose_action",
+        return_value=Action(ActionType.COMMUNICATE, claim_id=0, target_agent_id=1),
+    )
+    mocker.patch.object(
+        a1,
+        "choose_action",
+        return_value=Action(ActionType.IDLE),
+    )
+
+    snapshot = world.step()
+
+    assert snapshot.verified_ids == []
+    assert snapshot.communicate_edges == [(0, 1)]
+    assert snapshot.broadcast_edges == []
+
+
+def test_step_distinguishes_belief_and_trust_updates(mocker):
+    """A rejected HEAR memory can update trust without moving belief.
+
+    This is core to bounded-confidence social dynamics, not an edge case:
+    num_belief_updating_agents and num_trust_updating_agents must be able to
+    diverge in the same tick.
+    """
+    sender = Agent(0, rng_seed=0)
+    receiver = Agent(
+        1,
+        rng_seed=1,
+        social_confidence_bound=0.01,
+        social_trust_update_rate=0.5,
+        social_update_trust_on_rejection=True,
+    )
+    world = World(agents=[sender, receiver], truths={0: True}, rng_seed=1)
+    world.private_event_rate = 0.0
+    world.global_event_rate = 0.0
+    world.network[0] = [1]
+
+    sender.beliefs[0] = 1.0
+    receiver.beliefs[0] = 0.0
+
+    mocker.patch.object(
+        sender,
+        "choose_action",
+        return_value=Action(ActionType.COMMUNICATE, claim_id=0, target_agent_id=1),
+    )
+    mocker.patch.object(receiver, "choose_action", return_value=Action(ActionType.IDLE))
+
+    snapshot = world.step()
+
+    assert snapshot.num_memory_processing_agents == 1
+    assert snapshot.num_belief_updating_agents == 0
+    assert snapshot.num_trust_updating_agents == 1

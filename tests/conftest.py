@@ -1,10 +1,11 @@
-"""Shared test helpers for reaching into model internals.
+"""Shared pytest fixtures for reaching into model internals.
 
-These helpers centralize the (intentionally private) mechanics that tests
-occasionally need to exercise directly, such as seeding an agent's memory.
-Keeping them in one place means a change to internal APIs only needs to be
-reflected here, not in every test.
+Centralizes the (intentionally private) mechanics that tests occasionally
+need to exercise directly, such as seeding an agent's memory, so a change to
+internal APIs only needs to be reflected here, not in every test.
 """
+
+import pytest
 
 from simlab.sim import Agent, MemoryType
 
@@ -31,3 +32,8 @@ def seed_memory(
         evidence=evidence,
         source=source,
     )
+
+
+@pytest.fixture
+def memory_seeder():
+    return seed_memory

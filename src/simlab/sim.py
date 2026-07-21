@@ -1,5 +1,6 @@
 from simlab.types import (
     ActionType,
+    AgentUpdateTrace,
     MemoryType,
     Action,
     ActionTrace,
@@ -13,6 +14,7 @@ from simlab.world import World
 
 __all__ = [
     "ActionType",
+    "AgentUpdateTrace",
     "MemoryType",
     "Action",
     "ActionTrace",
