@@ -1,0 +1,104 @@
+from __future__ import annotations
+
+import csv
+import json
+import os
+import shutil
+import tempfile
+from collections.abc import Sequence
+from dataclasses import asdict
+from datetime import datetime, timezone
+from typing import TYPE_CHECKING, Any
+
+from simlab.telemetry import TelemetryRow
+
+if TYPE_CHECKING:
+    from simlab.runner import RunResult
+
+_LABEL_FIELDS = (
+    "converged",
+    "final_consensus",
+    "final_truth_aligned",
+    "final_false_consensus",
+)
+
+
+def _write_trajectory_csv(rows: Sequence[TelemetryRow], path: str) -> None:
+    fieldnames = list(TelemetryRow.__annotations__.keys())
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(row.to_dict())
+
+
+def _build_manifest(result: RunResult) -> dict[str, Any]:
+    metadata = result.metadata
+    return {
+        "schema_version": metadata.schema_version,
+        "run_id": metadata.run_id,
+        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "config_path": metadata.config_path,
+        "config_fingerprint": metadata.config_fingerprint,
+        "resolved_config": metadata.resolved_config,
+        "world_seed": metadata.world_seed,
+        "requested_steps": metadata.requested_steps,
+        "completed_steps": metadata.completed_steps,
+        "num_agents": metadata.num_agents,
+        "num_claims": metadata.num_claims,
+        "profile_counts": metadata.profile_counts,
+    }
+
+
+def _build_summary_doc(result: RunResult) -> dict[str, Any]:
+    summary_dict = asdict(result.summary)
+    outcomes = {k: v for k, v in summary_dict.items() if k not in _LABEL_FIELDS}
+    labels = {k: summary_dict[k] for k in _LABEL_FIELDS}
+    return {
+        "run_id": result.metadata.run_id,
+        "scenario": result.scenario,
+        "outcomes": outcomes,
+        "labels": labels,
+    }
+
+
+def write_run_artifacts(
+    result: RunResult, output_dir: str, *, overwrite: bool = False
+) -> str:
+    """
+    Write manifest.json, summary.json, and trajectory.csv for a completed
+    run to ``<output_dir>/<run_id>/``.
+
+    All three files are written to a temporary sibling directory first and
+    moved into place only once complete, so a crash or exception mid-write
+    never leaves a partially-written run directory at the final path.
+
+    :raises FileExistsError: if the run directory already exists and
+        ``overwrite`` is False.
+    :return: the final run directory path.
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    final_dir = os.path.join(output_dir, result.metadata.run_id)
+
+    if os.path.exists(final_dir) and not overwrite:
+        raise FileExistsError(
+            f"Run directory already exists: {final_dir} "
+            "(pass overwrite=True to replace it)"
+        )
+
+    tmp_dir = tempfile.mkdtemp(prefix=f".{result.metadata.run_id}-", dir=output_dir)
+    try:
+        with open(os.path.join(tmp_dir, "manifest.json"), "w", encoding="utf-8") as f:
+            json.dump(_build_manifest(result), f, indent=2, sort_keys=True)
+        with open(os.path.join(tmp_dir, "summary.json"), "w", encoding="utf-8") as f:
+            json.dump(_build_summary_doc(result), f, indent=2, sort_keys=True)
+        _write_trajectory_csv(result.telemetry, os.path.join(tmp_dir, "trajectory.csv"))
+
+        if os.path.exists(final_dir):
+            shutil.rmtree(final_dir)
+        os.rename(tmp_dir, final_dir)
+    except BaseException:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        raise
+
+    return final_dir

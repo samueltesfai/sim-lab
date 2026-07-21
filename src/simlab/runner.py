@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import uuid
 from dataclasses import dataclass
 from time import perf_counter
+from typing import Any
 
 from omegaconf import OmegaConf
 
@@ -29,6 +31,7 @@ class RunMetadata:
     run_id: str
     config_path: str
     config_fingerprint: str
+    resolved_config: dict[str, Any]
     world_seed: int
     requested_steps: int
     completed_steps: int
@@ -45,11 +48,10 @@ class RunResult:
     telemetry: list[TelemetryRow]
 
 
-def _fingerprint_config(cfg: OmegaConf) -> str:
+def _fingerprint_resolved_config(resolved_config: dict[str, Any]) -> str:
     """Hash the fully-resolved config so identical scenarios share an
     identifier regardless of the source file's path or formatting."""
-    resolved = OmegaConf.to_container(cfg, resolve=True)
-    canonical = json.dumps(resolved, sort_keys=True, separators=(",", ":"))
+    canonical = json.dumps(resolved_config, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
@@ -67,6 +69,7 @@ def execute_run(request: RunRequest) -> RunResult:
     """
     cfg = load_config(request.config_path)
     world = build_world(cfg)
+    resolved_config: dict[str, Any] = OmegaConf.to_container(cfg, resolve=True)
 
     telemetry = Telemetry()
     initial_row = telemetry.record_initial(world)
@@ -86,7 +89,8 @@ def execute_run(request: RunRequest) -> RunResult:
         schema_version=SCHEMA_VERSION,
         run_id=request.run_id or uuid.uuid4().hex,
         config_path=request.config_path,
-        config_fingerprint=_fingerprint_config(cfg),
+        config_fingerprint=_fingerprint_resolved_config(resolved_config),
+        resolved_config=resolved_config,
         world_seed=int(cfg.world.rng_seed),
         requested_steps=request.steps,
         completed_steps=request.steps,
@@ -103,3 +107,67 @@ def execute_run(request: RunRequest) -> RunResult:
         summary=summary,
         telemetry=telemetry.history,
     )
+
+
+def _build_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="python -m simlab.runner",
+        description="Run a simulation headlessly and write run artifacts "
+        "(manifest.json, summary.json, trajectory.csv).",
+    )
+    parser.add_argument(
+        "-f",
+        "--config",
+        type=str,
+        required=True,
+        help="Path to configuration YAML file",
+    )
+    parser.add_argument(
+        "-t",
+        "--steps",
+        type=int,
+        required=True,
+        help="Number of simulation steps to run",
+    )
+    parser.add_argument(
+        "-o",
+        "--output-dir",
+        type=str,
+        required=True,
+        help="Directory to write the run's artifact folder under",
+    )
+    parser.add_argument(
+        "--run-id",
+        type=str,
+        default=None,
+        help="Explicit run id to use (default: generated)",
+    )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Replace an existing run directory with the same run id",
+    )
+    return parser
+
+
+def main() -> None:
+    # Imported lazily so that importing simlab.runner for its library API
+    # (execute_run/RunRequest/RunResult) never pulls in file-writing code.
+    from simlab.experiment_io import write_run_artifacts
+
+    args = _build_arg_parser().parse_args()
+
+    result = execute_run(
+        RunRequest(config_path=args.config, steps=args.steps, run_id=args.run_id)
+    )
+    run_dir = write_run_artifacts(result, args.output_dir, overwrite=args.overwrite)
+
+    print(
+        f"Run {result.metadata.run_id} complete: "
+        f"{result.metadata.completed_steps} steps"
+    )
+    print(f"Artifacts written to {run_dir}")
+
+
+if __name__ == "__main__":
+    main()

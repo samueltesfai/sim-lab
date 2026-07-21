@@ -111,6 +111,8 @@ def test_execute_run_populates_metadata(config_path):
     assert metadata.num_agents == 5
     assert metadata.num_claims == 2
     assert metadata.profile_counts == {"default": 5}
+    assert metadata.resolved_config["world"]["rng_seed"] == 42
+    assert metadata.resolved_config["agent"]["profiles"][0]["count"] == 5
 
 
 def test_execute_run_generates_run_id_when_not_provided(config_path):
