@@ -9,6 +9,7 @@ from time import perf_counter
 from omegaconf import OmegaConf
 
 from simlab.config import build_world, load_config
+from simlab.run_summary import RunSummary, compute_run_summary
 from simlab.scenario import extract_scenario_features
 from simlab.telemetry import Telemetry, TelemetryRow
 
@@ -40,8 +41,8 @@ class RunMetadata:
 class RunResult:
     metadata: RunMetadata
     scenario: dict[str, float | int]
+    summary: RunSummary
     telemetry: list[TelemetryRow]
-    total_runtime_ms: float
 
 
 def _fingerprint_config(cfg: OmegaConf) -> str:
@@ -59,8 +60,10 @@ def execute_run(request: RunRequest) -> RunResult:
     Records an initial telemetry row followed by one row per completed step,
     timing each step in isolation so visualization/pause overhead never
     contaminates the runtime measurement. Also derives run metadata (a
-    reproducibility fingerprint for the resolved config, world seed, run id)
-    and scenario features describing the conditions the run started under.
+    reproducibility fingerprint for the resolved config, world seed, run id),
+    scenario features describing the conditions the run started under, and a
+    run summary aggregating the full trajectory into initial/final state,
+    activity totals, and a conservative set of outcome labels.
     """
     cfg = load_config(request.config_path)
     world = build_world(cfg)
@@ -92,9 +95,11 @@ def execute_run(request: RunRequest) -> RunResult:
         profile_counts=world.profile_counts,
     )
 
+    summary = compute_run_summary(telemetry.history, total_runtime_ms=total_runtime_ms)
+
     return RunResult(
         metadata=metadata,
         scenario=scenario,
+        summary=summary,
         telemetry=telemetry.history,
-        total_runtime_ms=total_runtime_ms,
     )

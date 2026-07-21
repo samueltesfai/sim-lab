@@ -75,7 +75,7 @@ def test_execute_run_measures_step_runtime(config_path):
 def test_execute_run_total_runtime_is_positive(config_path):
     result = execute_run(RunRequest(config_path=config_path, steps=3))
 
-    assert result.total_runtime_ms >= 0.0
+    assert result.summary.total_runtime_ms >= 0.0
 
 
 def test_execute_run_is_headless_and_reproducible(config_path):
@@ -161,3 +161,15 @@ def test_execute_run_scenario_matches_world(config_path):
     assert scenario["profile_fraction.default"] == pytest.approx(1.0)
     assert scenario["graph.num_nodes"] == 5
     assert scenario["initial.belief_mean"] == result.telemetry[0].belief_mean
+
+
+def test_execute_run_summary_matches_trajectory(config_path):
+    result = execute_run(RunRequest(config_path=config_path, steps=5))
+    final_row = result.telemetry[-1]
+
+    assert result.summary.final_mean_truth_error == final_row.mean_abs_error_to_truth
+    assert result.summary.final_mean_trust == final_row.mean_trust
+    assert result.summary.total_observations == sum(
+        row.num_observations for row in result.telemetry
+    )
+    assert result.summary.total_runtime_ms >= 0.0
