@@ -27,7 +27,9 @@ def _build_test_snapshot(world: World, tick: int = 0) -> Snapshot:
         verified_ids=[2],
         communicate_edges=[(0, 1), (1, 2)],
         broadcast_edges=[(0, 1), (0, 2)],
-        n_agent_updates=3,
+        num_memory_processing_agents=3,
+        num_belief_updating_agents=3,
+        num_trust_updating_agents=0,
         agent_beliefs=world.get_agent_beliefs_snapshot(),
         agent_memory_sizes={0: 5, 1: 3, 2: 4},
     )
@@ -186,7 +188,9 @@ def test_compute_viewmodel_stats():
         verified_ids=[],
         communicate_edges=[],
         broadcast_edges=[],
-        n_agent_updates=0,
+        num_memory_processing_agents=0,
+        num_belief_updating_agents=0,
+        num_trust_updating_agents=0,
         agent_beliefs=agent_beliefs,
         agent_memory_sizes={0: 0, 1: 0, 2: 0},
     )
@@ -216,7 +220,9 @@ def test_compute_viewmodel_empty_beliefs():
         verified_ids=[],
         communicate_edges=[],
         broadcast_edges=[],
-        n_agent_updates=0,
+        num_memory_processing_agents=0,
+        num_belief_updating_agents=0,
+        num_trust_updating_agents=0,
         agent_beliefs={},
         agent_memory_sizes={},
     )
@@ -245,7 +251,9 @@ def test_compute_viewmodel_missing_claim():
         verified_ids=[],
         communicate_edges=[],
         broadcast_edges=[],
-        n_agent_updates=0,
+        num_memory_processing_agents=0,
+        num_belief_updating_agents=0,
+        num_trust_updating_agents=0,
         agent_beliefs=agent_beliefs,
         agent_memory_sizes={0: 0, 1: 0},
     )
@@ -272,7 +280,9 @@ def test_compute_viewmodel_duplicate_edge_removal():
         verified_ids=[],
         communicate_edges=[(0, 1), (0, 1), (1, 2)],  # Duplicate (0,1)
         broadcast_edges=[(0, 2), (1, 2), (0, 2)],  # Duplicate (0,2)
-        n_agent_updates=0,
+        num_memory_processing_agents=0,
+        num_belief_updating_agents=0,
+        num_trust_updating_agents=0,
         agent_beliefs=world.get_agent_beliefs_snapshot(),
         agent_memory_sizes={0: 0, 1: 0, 2: 0},
     )

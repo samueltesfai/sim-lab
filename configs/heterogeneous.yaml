@@ -17,6 +17,10 @@ agent:
       bias: 0.0
     trust:
       default: 0.5
+    social:
+      confidence_bound: 1.0
+      trust_update_rate: 0.0
+      update_trust_on_rejection: true
     learning:
       rate: 0.1
       observe_weight: 0.6

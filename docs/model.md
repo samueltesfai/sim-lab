@@ -1,7 +1,7 @@
 # Simulation Model
 
 This document describes the conceptual model implemented by the simulation
-kernel in `sim.py`: how the world, agents, events, memories, and beliefs fit
+kernel: how the world, agents, events, memories, and beliefs fit
 together, and what happens during a tick.
 
 For how to *configure* a scenario (the YAML schema, defaults, validation rules,
@@ -219,6 +219,21 @@ Trust currently affects only social hearing (`MemoryType.HEAR`) during belief
 updates: it controls how much weight a socially received memory has in the
 learning rule.
 
+Trust is not necessarily static. Two additional per-agent parameters govern
+its dynamics:
+
+- `social_confidence_bound` caps how far heard evidence may sit from the
+  agent's current belief and still be accepted; evidence outside the bound
+  contributes an effective learning rate of `0.0` for that memory.
+- `social_trust_update_rate` (default `0.0`, i.e. off) lets trust in a
+  source drift toward the agent's observed agreement with that source each
+  time a `HEAR` memory is processed. `social_update_trust_on_rejection`
+  controls whether that drift still happens for memories rejected by the
+  confidence bound.
+
+See [`docs/config.md`](config.md#socialconfidence_bound) for the exact
+schema and defaults.
+
 ### Network
 
 The world maintains a directed social graph:
@@ -416,6 +431,9 @@ self.profile_name: str            # which agent type this is
 self.observation_attention: float # P(notice an observation event)
 self.observation_bias: float      # systematic perceptual bias when encoding
 self.default_trust: float         # trust for unseen agents
+self.social_confidence_bound: float        # max distance for HEAR to update belief
+self.social_trust_update_rate: float       # rate of dynamic trust adjustment
+self.social_update_trust_on_rejection: bool # update trust even when HEAR rejected
 self.learning_rate: float         # global plasticity
 self.observe_weight: float        # channel weight for OBSERVE
 self.hear_weight: float           # channel weight for HEAR
@@ -478,13 +496,19 @@ type:
 
 - `OBSERVE`: `learning_rate * observe_weight`
 - `VERIFY`: `learning_rate * verify_weight`
-- `HEAR`: `learning_rate * hear_weight * trust[source]`
+- `HEAR`: `learning_rate * hear_weight * trust[source]`, or `0.0` if
+  `|evidence - belief| > social_confidence_bound`
 
 Then clamped to `[0, 1]`.
 
 Here `learning_rate` is the agent's global plasticity, the channel weights are
 credibility/weighting per source type, and `trust[source]` modulates social
 hearing. Unseen sources fall back to the agent's `default_trust`.
+
+After a `HEAR` memory is processed, trust in its source may also be updated
+(see [Trust](#trust)) based on `social_trust_update_rate` and
+`social_update_trust_on_rejection` — independently of whether the memory was
+accepted for belief updating.
 
 With the default parameters (see [config.md](config.md)) verification is
 strongest, observation is moderate, and social hearing is weakest and
@@ -517,7 +541,10 @@ The `Snapshot` contains:
 - communication edges and broadcast edges
 - full belief state for all agents and claims
 - agent memory sizes
-- number of agent belief updates
+- three agent-update counts: how many agents processed a new memory, how many
+  had a belief value change, and how many had a trust value change this tick.
+  These can diverge — a HEAR memory rejected by bounded confidence can still
+  update trust without moving belief (see [Trust](#trust)).
 
 The snapshot is consumed by visualization and telemetry but does not affect
 simulation behavior.
@@ -575,7 +602,6 @@ The current kernel intentionally leaves many things simple.
 Not yet modeled:
 
 - intentional deception or lying
-- dynamic trust updates
 - changing network topology
 - community-structured graphs
 - multi-step planning or expected utility
