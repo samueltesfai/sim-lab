@@ -1,23 +1,55 @@
 from __future__ import annotations
 
+import hashlib
+import json
+import uuid
 from dataclasses import dataclass
 from time import perf_counter
 
+from omegaconf import OmegaConf
+
 from simlab.config import build_world, load_config
+from simlab.scenario import extract_scenario_features
 from simlab.telemetry import Telemetry, TelemetryRow
+
+SCHEMA_VERSION = "0.1.0"
 
 
 @dataclass(frozen=True, slots=True)
 class RunRequest:
     config_path: str
     steps: int
+    run_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class RunMetadata:
+    schema_version: str
+    run_id: str
+    config_path: str
+    config_fingerprint: str
+    world_seed: int
+    requested_steps: int
+    completed_steps: int
+    num_agents: int
+    num_claims: int
+    profile_counts: dict[str, int]
 
 
 @dataclass(frozen=True, slots=True)
 class RunResult:
+    metadata: RunMetadata
+    scenario: dict[str, float | int]
     telemetry: list[TelemetryRow]
-    completed_steps: int
     total_runtime_ms: float
+
+
+def _fingerprint_config(cfg: OmegaConf) -> str:
+    """Hash the fully-resolved config so identical scenarios share an
+    identifier regardless of the source file's path or formatting."""
+    resolved = OmegaConf.to_container(cfg, resolve=True)
+    canonical = json.dumps(resolved, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def execute_run(request: RunRequest) -> RunResult:
@@ -26,13 +58,16 @@ def execute_run(request: RunRequest) -> RunResult:
 
     Records an initial telemetry row followed by one row per completed step,
     timing each step in isolation so visualization/pause overhead never
-    contaminates the runtime measurement.
+    contaminates the runtime measurement. Also derives run metadata (a
+    reproducibility fingerprint for the resolved config, world seed, run id)
+    and scenario features describing the conditions the run started under.
     """
     cfg = load_config(request.config_path)
     world = build_world(cfg)
 
     telemetry = Telemetry()
-    telemetry.record_initial(world)
+    initial_row = telemetry.record_initial(world)
+    scenario = extract_scenario_features(world, initial_row)
 
     run_start = perf_counter()
 
@@ -44,8 +79,22 @@ def execute_run(request: RunRequest) -> RunResult:
 
     total_runtime_ms = (perf_counter() - run_start) * 1000
 
-    return RunResult(
-        telemetry=telemetry.history,
+    metadata = RunMetadata(
+        schema_version=SCHEMA_VERSION,
+        run_id=request.run_id or uuid.uuid4().hex,
+        config_path=request.config_path,
+        config_fingerprint=_fingerprint_config(cfg),
+        world_seed=int(cfg.world.rng_seed),
+        requested_steps=request.steps,
         completed_steps=request.steps,
+        num_agents=len(world.agents),
+        num_claims=len(world.claims),
+        profile_counts=world.profile_counts,
+    )
+
+    return RunResult(
+        metadata=metadata,
+        scenario=scenario,
+        telemetry=telemetry.history,
         total_runtime_ms=total_runtime_ms,
     )
