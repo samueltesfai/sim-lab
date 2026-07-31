@@ -1,19 +1,22 @@
-from omegaconf import OmegaConf
 import os
-from simlab.world import World
-from simlab.agent import Agent
+
+import yaml
+
+from simlab.agent import DEFAULT_SETTINGS, Agent
+from simlab.world import DEFAULT_NOISE, World
 from simlab.kernel_types import ActionType, MemoryType
 
 
 VALID_ACTIONS = {"IDLE", "VERIFY", "COMMUNICATE", "BROADCAST"}
 
 
-def load_config(path: str) -> OmegaConf:
+def load_config(path: str) -> dict:
     """Load configuration from YAML file."""
     if not os.path.exists(path):
         raise FileNotFoundError(f"Config file not found: {path}")
 
-    cfg = OmegaConf.load(path)
+    with open(path, encoding="utf-8") as f:
+        cfg = yaml.safe_load(f)
     validate_config(cfg)
     return cfg
 
@@ -43,32 +46,32 @@ def _validate_agent_settings(settings, *, context: str) -> None:
     """Validate the maps inside an agent settings node (defaults/profile)."""
     if "action_preference" in settings:
         _validate_action_map(
-            settings.action_preference,
+            settings["action_preference"],
             kind="preference",
             context=context,
             max_value=1.0,
         )
     if "action_cost" in settings:
         _validate_action_map(
-            settings.action_cost,
+            settings["action_cost"],
             kind="cost",
             context=context,
             max_value=None,
         )
 
     observation = settings.get("observation", {})
-    if "attention" in observation and not 0 <= observation.attention <= 1:
+    if "attention" in observation and not 0 <= observation["attention"] <= 1:
         raise ValueError(f"{context}.observation.attention must be in [0, 1]")
-    if "bias" in observation and not -1 <= observation.bias <= 1:
+    if "bias" in observation and not -1 <= observation["bias"] <= 1:
         raise ValueError(f"{context}.observation.bias must be in [-1, 1]")
 
     social = settings.get("social", {})
-    if "confidence_bound" in social and not 0 <= social.confidence_bound <= 1:
+    if "confidence_bound" in social and not 0 <= social["confidence_bound"] <= 1:
         raise ValueError(f"{context}.social.confidence_bound must be in [0, 1]")
-    if "trust_update_rate" in social and not 0 <= social.trust_update_rate <= 1:
+    if "trust_update_rate" in social and not 0 <= social["trust_update_rate"] <= 1:
         raise ValueError(f"{context}.social.trust_update_rate must be in [0, 1]")
     if "update_trust_on_rejection" in social and not isinstance(
-        social.update_trust_on_rejection, bool
+        social["update_trust_on_rejection"], bool
     ):
         raise ValueError(f"{context}.social.update_trust_on_rejection must be boolean")
 
@@ -79,58 +82,50 @@ def _validate_profile_count(count, name: str) -> None:
         raise ValueError(f"agent profile {name} count must be a positive integer")
 
 
-def validate_config(cfg: OmegaConf) -> None:
+def validate_config(cfg: dict) -> None:
     """Perform light validation on configuration."""
-    private_rate = cfg.world.observation.private_event_rate
+    private_rate = cfg["world"]["observation"]["private_event_rate"]
     if not 0 <= private_rate <= 1:
         raise ValueError("world.observation.private_event_rate must be in [0, 1]")
 
-    global_rate = cfg.world.observation.global_event_rate
+    global_rate = cfg["world"]["observation"]["global_event_rate"]
     if not 0 <= global_rate <= 1:
         raise ValueError("world.observation.global_event_rate must be in [0, 1]")
 
-    # Noise validation: only provided values are checked; missing keys are
-    # filled in with defaults by ``build_world``.
+    # Noise validation: only provided values are checked; missing keys default
+    # to 0.0 (see world.DEFAULT_NOISE), applied by build_world's materialization.
     for noise_type in ["OBSERVE", "HEAR", "VERIFY"]:
-        if noise_type in cfg.world.noise and cfg.world.noise[noise_type] < 0:
+        if (
+            noise_type in cfg["world"]["noise"]
+            and cfg["world"]["noise"][noise_type] < 0
+        ):
             raise ValueError(f"world.noise.{noise_type} must be non-negative")
 
     # Agent validation. There is exactly one canonical schema:
     #   agent.defaults  -> baseline cognitive/action parameters
     #   agent.profiles  -> concrete subpopulations (each with a count)
     # The total number of agents is the sum of the profile counts.
-    if "defaults" not in cfg.agent:
+    if "defaults" not in cfg["agent"]:
         raise ValueError("agent.defaults is required")
-    if "profiles" not in cfg.agent:
+    if "profiles" not in cfg["agent"]:
         raise ValueError("agent.profiles is required")
 
-    _validate_agent_settings(cfg.agent.defaults, context="agent.defaults")
+    _validate_agent_settings(cfg["agent"]["defaults"], context="agent.defaults")
 
-    if not cfg.agent.profiles:
+    if not cfg["agent"]["profiles"]:
         raise ValueError("agent.profiles must contain at least one profile")
 
-    for profile in cfg.agent.profiles:
+    for profile in cfg["agent"]["profiles"]:
         if "name" not in profile:
             raise ValueError("each agent profile must define name")
-        name = profile.name
-        _validate_profile_count(profile.count if "count" in profile else None, name)
+        name = profile["name"]
+        _validate_profile_count(profile.get("count"), name)
         _validate_agent_settings(profile, context=f"agent.profiles.{name}")
 
     # Truths validation
-    for claim_id, truth in cfg.world.truths.items():
+    for claim_id, truth in cfg["world"]["truths"].items():
         if not isinstance(truth, bool):
             raise ValueError(f"world.truths.{claim_id} must be boolean")
-
-
-def convert_noise_strings(cfg: OmegaConf) -> OmegaConf:
-    """Convert string noise keys to MemoryType enums."""
-
-    noise_dict = {}
-    for noise_str, value in cfg.world.noise.items():
-        noise_dict[MemoryType[noise_str]] = value
-    cfg.world.noise = noise_dict
-
-    return cfg
 
 
 def _deep_merge(base: dict, override: dict) -> dict:
@@ -145,54 +140,55 @@ def _deep_merge(base: dict, override: dict) -> dict:
 
 
 def _settings_to_agent_kwargs(settings: dict, profile_name: str) -> dict:
-    """Translate a merged agent settings node into Agent constructor kwargs.
-
-    Only keys present in ``settings`` are passed through; the Agent applies its
-    own defaults for anything omitted.
+    """Translate a fully-materialized agent settings node into Agent constructor
+    kwargs. ``settings`` must already have every field present (see
+    ``_materialize_agent_profiles``); nothing here is optional.
     """
-    kwargs: dict = {"profile_name": profile_name}
-
-    if "action_preference" in settings:
-        kwargs["action_preference"] = {
+    return {
+        "profile_name": profile_name,
+        "action_preference": {
             ActionType[k]: v for k, v in settings["action_preference"].items()
-        }
-    if "action_cost" in settings:
-        kwargs["action_cost"] = {
-            ActionType[k]: v for k, v in settings["action_cost"].items()
-        }
-
-    observation = settings.get("observation", {})
-    if "attention" in observation:
-        kwargs["observation_attention"] = observation["attention"]
-    if "bias" in observation:
-        kwargs["observation_bias"] = observation["bias"]
-
-    trust = settings.get("trust", {})
-    if "default" in trust:
-        kwargs["default_trust"] = trust["default"]
-
-    learning = settings.get("learning", {})
-    if "rate" in learning:
-        kwargs["learning_rate"] = learning["rate"]
-    if "observe_weight" in learning:
-        kwargs["observe_weight"] = learning["observe_weight"]
-    if "hear_weight" in learning:
-        kwargs["hear_weight"] = learning["hear_weight"]
-    if "verify_weight" in learning:
-        kwargs["verify_weight"] = learning["verify_weight"]
-
-    social = settings.get("social", {})
-    if "confidence_bound" in social:
-        kwargs["social_confidence_bound"] = social["confidence_bound"]
-    if "trust_update_rate" in social:
-        kwargs["social_trust_update_rate"] = social["trust_update_rate"]
-    if "update_trust_on_rejection" in social:
-        kwargs["social_update_trust_on_rejection"] = social["update_trust_on_rejection"]
-
-    return kwargs
+        },
+        "action_cost": {ActionType[k]: v for k, v in settings["action_cost"].items()},
+        "observation_attention": settings["observation"]["attention"],
+        "observation_bias": settings["observation"]["bias"],
+        "default_trust": settings["trust"]["default"],
+        "learning_rate": settings["learning"]["rate"],
+        "observe_weight": settings["learning"]["observe_weight"],
+        "hear_weight": settings["learning"]["hear_weight"],
+        "verify_weight": settings["learning"]["verify_weight"],
+        "social_confidence_bound": settings["social"]["confidence_bound"],
+        "social_trust_update_rate": settings["social"]["trust_update_rate"],
+        "social_update_trust_on_rejection": settings["social"][
+            "update_trust_on_rejection"
+        ],
+    }
 
 
-def expand_agent_specs(cfg: OmegaConf) -> list[dict]:
+def _materialize_agent_profiles(cfg: dict) -> list[dict]:
+    """Expand ``agent.defaults`` + ``agent.profiles`` into one fully-specified,
+    JSON-safe settings dict per profile (``{"name":, "count":, **settings}``),
+    with every Agent-recognized field present regardless of what the YAML
+    omitted -- omitted fields are filled from ``agent.DEFAULT_SETTINGS``.
+
+    This is a pure transformation; callers must ensure ``cfg`` has already
+    passed ``validate_config``.
+    """
+    agent_cfg = cfg["agent"]
+    base = _deep_merge(DEFAULT_SETTINGS, agent_cfg["defaults"])
+
+    profiles: list[dict] = []
+    for profile in agent_cfg["profiles"]:
+        name = profile["name"]
+        count = profile["count"]
+        overrides = {k: v for k, v in profile.items() if k not in {"name", "count"}}
+        merged = _deep_merge(base, overrides)
+        profiles.append({"name": name, "count": count, **merged})
+
+    return profiles
+
+
+def expand_agent_specs(cfg: dict) -> list[dict]:
     """Expand ``agent.defaults`` + ``agent.profiles`` into one Agent spec per agent.
 
     Each profile inherits ``agent.defaults`` and may override any subset of
@@ -201,27 +197,56 @@ def expand_agent_specs(cfg: OmegaConf) -> list[dict]:
     This is a pure transformation; callers must ensure ``cfg`` has already
     passed ``validate_config``.
     """
-    agent_cfg = OmegaConf.to_container(cfg.agent, resolve=True)
-
     specs: list[dict] = []
-    for profile in agent_cfg["profiles"]:
+    for profile in _materialize_agent_profiles(cfg):
         name = profile["name"]
         count = profile["count"]
-        overrides = {k: v for k, v in profile.items() if k not in {"name", "count"}}
-        merged = _deep_merge(agent_cfg["defaults"], overrides)
-        kwargs = _settings_to_agent_kwargs(merged, name)
+        settings = {k: v for k, v in profile.items() if k not in {"name", "count"}}
+        kwargs = _settings_to_agent_kwargs(settings, name)
         specs.extend(dict(kwargs) for _ in range(count))
 
     return specs
 
 
-def build_world(cfg: OmegaConf):
+def _materialize_world_settings(cfg: dict) -> dict:
+    """Return the ``world`` section with every field explicit, including noise
+    keys the YAML omitted (each defaults to 0.0 -- see ``world.DEFAULT_NOISE``).
+
+    This is a pure transformation; callers must ensure ``cfg`` has already
+    passed ``validate_config``.
+    """
+    world_cfg = cfg["world"]
+    return {
+        "rng_seed": world_cfg["rng_seed"],
+        "truths": dict(world_cfg["truths"]),
+        "noise": {**DEFAULT_NOISE, **world_cfg["noise"]},
+        "observation": {
+            "private_event_rate": world_cfg["observation"]["private_event_rate"],
+            "global_event_rate": world_cfg["observation"]["global_event_rate"],
+        },
+    }
+
+
+def materialize_config(cfg: dict) -> dict:
+    """Return the fully effective configuration -- every field explicit, no
+    field silently defaulted downstream by Agent/World construction.
+
+    Suitable for hashing or storing as a reproducibility record: two configs
+    that build identical simulations always materialize to the same result,
+    regardless of which defaulted fields either one happened to spell out.
+    """
+    return {
+        "world": _materialize_world_settings(cfg),
+        "agent": {"profiles": _materialize_agent_profiles(cfg)},
+    }
+
+
+def build_world(cfg: dict) -> World:
     """Build a World instance from a validated configuration."""
+    world_settings = _materialize_world_settings(cfg)
 
     # World noise -> enum-keyed dict.
-    noise = {
-        MemoryType[noise_str]: value for noise_str, value in cfg.world.noise.items()
-    }
+    noise = {MemoryType[k]: v for k, v in world_settings["noise"].items()}
 
     # Expand agent.defaults + agent.profiles into concrete agents.
     specs = expand_agent_specs(cfg)
@@ -230,7 +255,7 @@ def build_world(cfg: OmegaConf):
     for i, spec in enumerate(specs):
         agent = Agent(
             id=i,
-            rng_seed=cfg.world.rng_seed
+            rng_seed=world_settings["rng_seed"]
             + i
             + 1,  # add i to differ seed, and 1 to offset from world rng
             **spec,
@@ -240,11 +265,11 @@ def build_world(cfg: OmegaConf):
     # Create world
     world = World(
         agents=agents,
-        truths=cfg.world.truths,
-        rng_seed=cfg.world.rng_seed,
+        truths=world_settings["truths"],
+        rng_seed=world_settings["rng_seed"],
         noise=noise,
-        private_event_rate=cfg.world.observation.private_event_rate,
-        global_event_rate=cfg.world.observation.global_event_rate,
+        private_event_rate=world_settings["observation"]["private_event_rate"],
+        global_event_rate=world_settings["observation"]["global_event_rate"],
     )
 
     return world

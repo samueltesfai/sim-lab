@@ -1,8 +1,8 @@
 import pytest
 import tempfile
 import os
+import yaml
 from unittest.mock import patch
-from omegaconf import OmegaConf
 
 from simlab.main import main
 
@@ -10,7 +10,7 @@ from simlab.main import main
 def create_test_config_file(config_dict: dict) -> str:
     """Create a temporary YAML config file for testing."""
     with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-        OmegaConf.save(config_dict, f.name)
+        yaml.dump(config_dict, f)
         return f.name
 
 
@@ -158,23 +158,21 @@ def test_main_telemetry_export_integration():
 @patch("simlab.main.load_config")
 def test_main_handles_run_viz_exceptions(mock_load_config, mock_run_viz):
     """Test that main properly handles exceptions from run_viz."""
-    mock_cfg = OmegaConf.create(
-        {
-            "world": {
-                "rng_seed": 42,
-                "observation": {"private_event_rate": 0.1, "global_event_rate": 0.0},
-                "truths": {0: True},
-                "noise": {"OBSERVE": 0.0, "HEAR": 0.0, "VERIFY": 0.0},
+    mock_cfg = {
+        "world": {
+            "rng_seed": 42,
+            "observation": {"private_event_rate": 0.1, "global_event_rate": 0.0},
+            "truths": {0: True},
+            "noise": {"OBSERVE": 0.0, "HEAR": 0.0, "VERIFY": 0.0},
+        },
+        "agent": {
+            "defaults": {
+                "action_preference": {"IDLE": 0.0},
+                "action_cost": {"IDLE": 0.0},
             },
-            "agent": {
-                "defaults": {
-                    "action_preference": {"IDLE": 0.0},
-                    "action_cost": {"IDLE": 0.0},
-                },
-                "profiles": [{"name": "default", "count": 1}],
-            },
-        }
-    )
+            "profiles": [{"name": "default", "count": 1}],
+        },
+    }
     mock_load_config.return_value = mock_cfg
 
     # Test that exceptions from run_viz are propagated

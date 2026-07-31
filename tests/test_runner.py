@@ -2,7 +2,7 @@ import os
 import tempfile
 
 import pytest
-from omegaconf import OmegaConf
+import yaml
 
 from simlab.runner import RunRequest, execute_run
 
@@ -36,7 +36,7 @@ CONFIG_DICT = {
 @pytest.fixture
 def config_path():
     with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-        OmegaConf.save(CONFIG_DICT, f.name)
+        yaml.dump(CONFIG_DICT, f)
         path = f.name
     try:
         yield path
@@ -143,7 +143,7 @@ def test_execute_run_config_fingerprint_is_stable(config_path):
 def test_execute_run_config_fingerprint_changes_with_config(config_path):
     other_config = {**CONFIG_DICT, "world": {**CONFIG_DICT["world"], "rng_seed": 7}}
     with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-        OmegaConf.save(other_config, f.name)
+        yaml.dump(other_config, f)
         other_path = f.name
 
     try:
@@ -154,6 +154,54 @@ def test_execute_run_config_fingerprint_changes_with_config(config_path):
         )
     finally:
         os.unlink(other_path)
+
+
+def test_execute_run_config_fingerprint_same_for_explicit_and_omitted_defaults(
+    config_path,
+):
+    """Two configs that build identical simulations -- one omitting
+    agent.defaults.observation/trust/social/learning, one spelling out the
+    exact built-in Agent defaults for them -- must fingerprint identically."""
+    explicit_config = {
+        **CONFIG_DICT,
+        "agent": {
+            **CONFIG_DICT["agent"],
+            "defaults": {
+                **CONFIG_DICT["agent"]["defaults"],
+                "observation": {"attention": 1.0, "bias": 0.0},
+                "trust": {"default": 0.5},
+                "social": {
+                    "confidence_bound": 1.0,
+                    "trust_update_rate": 0.0,
+                    "update_trust_on_rejection": True,
+                },
+                "learning": {
+                    "rate": 0.1,
+                    "observe_weight": 0.6,
+                    "hear_weight": 0.3,
+                    "verify_weight": 1.0,
+                },
+            },
+        },
+    }
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+        yaml.dump(explicit_config, f)
+        explicit_path = f.name
+
+    try:
+        omitted_result = execute_run(RunRequest(config_path=config_path, steps=1))
+        explicit_result = execute_run(RunRequest(config_path=explicit_path, steps=1))
+
+        assert (
+            omitted_result.metadata.config_fingerprint
+            == explicit_result.metadata.config_fingerprint
+        )
+        assert (
+            omitted_result.metadata.resolved_config
+            == explicit_result.metadata.resolved_config
+        )
+    finally:
+        os.unlink(explicit_path)
 
 
 def test_execute_run_scenario_matches_world(config_path):

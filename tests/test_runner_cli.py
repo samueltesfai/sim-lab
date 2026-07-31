@@ -4,7 +4,7 @@ import tempfile
 from unittest.mock import patch
 
 import pytest
-from omegaconf import OmegaConf
+import yaml
 
 from simlab.runner import main
 
@@ -38,7 +38,7 @@ CONFIG_DICT = {
 @pytest.fixture
 def config_path():
     with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-        OmegaConf.save(CONFIG_DICT, f.name)
+        yaml.dump(CONFIG_DICT, f)
         path = f.name
     try:
         yield path

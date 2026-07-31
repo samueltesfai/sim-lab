@@ -1,12 +1,11 @@
 import pytest
 import tempfile
 import os
-from omegaconf import OmegaConf, DictConfig
+import yaml
 
 from simlab.config import (
     load_config,
     validate_config,
-    convert_noise_strings,
     expand_agent_specs,
     build_world,
 )
@@ -16,15 +15,14 @@ from simlab.world import World
 
 def _build_valid_world(config_dict: dict) -> World:
     """Build a World from a config dict after validating it."""
-    cfg = OmegaConf.create(config_dict)
-    validate_config(cfg)
-    return build_world(cfg)
+    validate_config(config_dict)
+    return build_world(config_dict)
 
 
 def create_test_config_file(config_dict: dict) -> str:
     """Create a temporary YAML config file for testing."""
     with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-        OmegaConf.save(config_dict, f.name)
+        yaml.dump(config_dict, f)
         return f.name
 
 
@@ -60,16 +58,15 @@ def test_load_config_success():
 
     try:
         cfg = load_config(config_path)
-        # load_config returns a DictConfig
-        assert isinstance(cfg, DictConfig)
+        # load_config returns a plain dict
+        assert isinstance(cfg, dict)
 
-        # Test accessing the config as OmegaConf/DictConfig
-        assert cfg.agent.profiles[0].count == 5
-        assert cfg.world.rng_seed == 42
-        assert cfg.world.observation.private_event_rate == 0.1
-        assert cfg.world.truths == {0: True, 1: False}
-        assert cfg.agent.defaults.action_preference.IDLE == 0.0
-        assert cfg.agent.defaults.action_preference.VERIFY == 0.9
+        assert cfg["agent"]["profiles"][0]["count"] == 5
+        assert cfg["world"]["rng_seed"] == 42
+        assert cfg["world"]["observation"]["private_event_rate"] == 0.1
+        assert cfg["world"]["truths"] == {0: True, 1: False}
+        assert cfg["agent"]["defaults"]["action_preference"]["IDLE"] == 0.0
+        assert cfg["agent"]["defaults"]["action_preference"]["VERIFY"] == 0.9
     finally:
         os.unlink(config_path)
 
@@ -107,10 +104,8 @@ def test_validate_config_success():
         },
     }
 
-    cfg = OmegaConf.create(config_dict)
-
     # Should not raise any exceptions
-    validate_config(cfg)
+    validate_config(config_dict)
 
 
 def test_validate_config_invalid_profile_count():
@@ -140,12 +135,10 @@ def test_validate_config_invalid_profile_count():
         },
     }
 
-    cfg = OmegaConf.create(config_dict)
-
     with pytest.raises(
         ValueError, match="agent profile default count must be a positive integer"
     ):
-        validate_config(cfg)
+        validate_config(config_dict)
 
 
 def test_validate_config_non_integral_profile_count():
@@ -162,12 +155,10 @@ def test_validate_config_non_integral_profile_count():
         },
     }
 
-    cfg = OmegaConf.create(config_dict)
-
     with pytest.raises(
         ValueError, match="agent profile default count must be a positive integer"
     ):
-        validate_config(cfg)
+        validate_config(config_dict)
 
 
 def test_validate_config_invalid_observation_rate():
@@ -200,13 +191,11 @@ def test_validate_config_invalid_observation_rate():
         },
     }
 
-    cfg = OmegaConf.create(config_dict)
-
     with pytest.raises(
         ValueError,
         match="world.observation.private_event_rate must be in \\[0, 1\\]",
     ):
-        validate_config(cfg)
+        validate_config(config_dict)
 
 
 def test_validate_config_invalid_global_event_rate():
@@ -226,13 +215,11 @@ def test_validate_config_invalid_global_event_rate():
         },
     }
 
-    cfg = OmegaConf.create(config_dict)
-
     with pytest.raises(
         ValueError,
         match="world.observation.global_event_rate must be in \\[0, 1\\]",
     ):
-        validate_config(cfg)
+        validate_config(config_dict)
 
 
 def test_validate_config_invalid_observation_attention():
@@ -251,13 +238,11 @@ def test_validate_config_invalid_observation_attention():
         },
     }
 
-    cfg = OmegaConf.create(config_dict)
-
     with pytest.raises(
         ValueError,
         match="agent.defaults.observation.attention must be in \\[0, 1\\]",
     ):
-        validate_config(cfg)
+        validate_config(config_dict)
 
 
 def test_validate_config_invalid_observation_bias():
@@ -280,13 +265,11 @@ def test_validate_config_invalid_observation_bias():
         },
     }
 
-    cfg = OmegaConf.create(config_dict)
-
     with pytest.raises(
         ValueError,
         match="agent.profiles.extreme.observation.bias must be in \\[-1, 1\\]",
     ):
-        validate_config(cfg)
+        validate_config(config_dict)
 
 
 def test_validate_config_negative_noise():
@@ -320,10 +303,8 @@ def test_validate_config_negative_noise():
         },
     }
 
-    cfg = OmegaConf.create(config_dict)
-
     with pytest.raises(ValueError, match="world.noise.OBSERVE must be non-negative"):
-        validate_config(cfg)
+        validate_config(config_dict)
 
 
 def test_validate_config_invalid_action_preference():
@@ -353,13 +334,11 @@ def test_validate_config_invalid_action_preference():
         },
     }
 
-    cfg = OmegaConf.create(config_dict)
-
     with pytest.raises(
         ValueError,
         match="agent.defaults.action_preference.VERIFY must be in \\[0, 1\\]",
     ):
-        validate_config(cfg)
+        validate_config(config_dict)
 
 
 def test_validate_config_invalid_action_name():
@@ -389,10 +368,8 @@ def test_validate_config_invalid_action_name():
         },
     }
 
-    cfg = OmegaConf.create(config_dict)
-
     with pytest.raises(ValueError, match="Invalid action: INVALID_ACTION"):
-        validate_config(cfg)
+        validate_config(config_dict)
 
 
 def test_validate_config_negative_action_cost():
@@ -422,12 +399,10 @@ def test_validate_config_negative_action_cost():
         },
     }
 
-    cfg = OmegaConf.create(config_dict)
-
     with pytest.raises(
         ValueError, match="agent.defaults.action_cost.VERIFY must be non-negative"
     ):
-        validate_config(cfg)
+        validate_config(config_dict)
 
 
 def test_validate_config_invalid_truths():
@@ -457,29 +432,8 @@ def test_validate_config_invalid_truths():
         },
     }
 
-    cfg = OmegaConf.create(config_dict)
-
     with pytest.raises(ValueError, match="world.truths.0 must be boolean"):
-        validate_config(cfg)
-
-
-def test_convert_noise_strings():
-    """Test conversion of string noise keys to MemoryType enums."""
-    config_dict = {"world": {"noise": {"OBSERVE": 0.0, "HEAR": 0.1, "VERIFY": 0.05}}}
-
-    cfg = OmegaConf.create(config_dict)
-
-    converted_cfg = convert_noise_strings(cfg)
-
-    # Noise keys should be converted to MemoryType enums
-    assert MemoryType.OBSERVE in converted_cfg.world.noise
-    assert MemoryType.HEAR in converted_cfg.world.noise
-    assert MemoryType.VERIFY in converted_cfg.world.noise
-
-    # Check values are preserved
-    assert converted_cfg.world.noise[MemoryType.OBSERVE] == 0.0
-    assert converted_cfg.world.noise[MemoryType.HEAR] == 0.1
-    assert converted_cfg.world.noise[MemoryType.VERIFY] == 0.05
+        validate_config(config_dict)
 
 
 def test_build_world():
@@ -711,7 +665,7 @@ def _config(profiles: list[dict]) -> dict:
 
 def test_single_default_profile_builds():
     """A single 'default' profile builds the requested number of agents."""
-    cfg = OmegaConf.create(_config([{"name": "default", "count": 4}]))
+    cfg = _config([{"name": "default", "count": 4}])
     validate_config(cfg)
     world = build_world(cfg)
 
@@ -775,9 +729,7 @@ def test_profiles_expand_counts_and_params():
 
 def test_profile_counts_determine_total_agents():
     """Total agents is the sum of profile counts; no separate world total."""
-    cfg = OmegaConf.create(
-        _config([{"name": "a", "count": 20}, {"name": "b", "count": 29}])
-    )
+    cfg = _config([{"name": "a", "count": 20}, {"name": "b", "count": 29}])
     validate_config(cfg)
     world = build_world(cfg)
     assert len(world.agents) == 49
@@ -787,9 +739,8 @@ def test_profile_counts_determine_total_agents():
 def test_empty_profiles_raise():
     """An empty profiles list is rejected."""
     config_dict = _config([])
-    cfg = OmegaConf.create(config_dict)
     with pytest.raises(ValueError, match="at least one profile"):
-        validate_config(cfg)
+        validate_config(config_dict)
 
 
 def test_missing_defaults_raises():
@@ -797,9 +748,8 @@ def test_missing_defaults_raises():
     config_dict = _config([{"name": "default", "count": 3}])
     del config_dict["agent"]["defaults"]
 
-    cfg = OmegaConf.create(config_dict)
     with pytest.raises(ValueError, match="agent.defaults is required"):
-        validate_config(cfg)
+        validate_config(config_dict)
 
 
 def test_missing_profiles_raises():
@@ -807,24 +757,22 @@ def test_missing_profiles_raises():
     config_dict = _config([{"name": "default", "count": 3}])
     del config_dict["agent"]["profiles"]
 
-    cfg = OmegaConf.create(config_dict)
     with pytest.raises(ValueError, match="agent.profiles is required"):
-        validate_config(cfg)
+        validate_config(config_dict)
 
 
 def test_profile_missing_count_raises():
     """Each profile must define a count."""
     config_dict = _config([{"name": "default"}])
-    cfg = OmegaConf.create(config_dict)
     with pytest.raises(
         ValueError, match="agent profile default count must be a positive integer"
     ):
-        validate_config(cfg)
+        validate_config(config_dict)
 
 
 def test_expand_agent_specs_single_profile():
     """expand_agent_specs returns one spec per agent for a single default profile."""
-    cfg = OmegaConf.create(_config([{"name": "default", "count": 3}]))
+    cfg = _config([{"name": "default", "count": 3}])
     specs = expand_agent_specs(cfg)
 
     assert len(specs) == 3
@@ -838,7 +786,7 @@ def test_validate_config_rejects_non_integral_count():
     ``load_config`` performs the validation at the input boundary, so the
     build path cannot silently change the requested population size.
     """
-    cfg = OmegaConf.create(_config([{"name": "default", "count": 2.9}]))
+    cfg = _config([{"name": "default", "count": 2.9}])
     with pytest.raises(
         ValueError, match="agent profile default count must be a positive integer"
     ):
@@ -860,14 +808,14 @@ def _social_config(social: dict) -> dict:
 def test_validate_social_confidence_bound_valid():
     """Valid confidence_bound values in [0, 1] pass validation."""
     for val in [0.0, 0.5, 1.0]:
-        cfg = OmegaConf.create(_social_config({"confidence_bound": val}))
+        cfg = _social_config({"confidence_bound": val})
         validate_config(cfg)  # should not raise
 
 
 def test_validate_social_confidence_bound_invalid():
     """confidence_bound outside [0, 1] is rejected."""
     for val in [-0.1, 1.1]:
-        cfg = OmegaConf.create(_social_config({"confidence_bound": val}))
+        cfg = _social_config({"confidence_bound": val})
         with pytest.raises(
             ValueError,
             match="agent.defaults.social.confidence_bound must be in \\[0, 1\\]",
@@ -878,14 +826,14 @@ def test_validate_social_confidence_bound_invalid():
 def test_validate_social_trust_update_rate_valid():
     """Valid trust_update_rate values in [0, 1] pass validation."""
     for val in [0.0, 0.3, 1.0]:
-        cfg = OmegaConf.create(_social_config({"trust_update_rate": val}))
+        cfg = _social_config({"trust_update_rate": val})
         validate_config(cfg)
 
 
 def test_validate_social_trust_update_rate_invalid():
     """trust_update_rate outside [0, 1] is rejected."""
     for val in [-0.01, 1.5]:
-        cfg = OmegaConf.create(_social_config({"trust_update_rate": val}))
+        cfg = _social_config({"trust_update_rate": val})
         with pytest.raises(
             ValueError,
             match="agent.defaults.social.trust_update_rate must be in \\[0, 1\\]",
@@ -896,13 +844,13 @@ def test_validate_social_trust_update_rate_invalid():
 def test_validate_social_update_trust_on_rejection_valid():
     """Boolean update_trust_on_rejection passes validation."""
     for val in [True, False]:
-        cfg = OmegaConf.create(_social_config({"update_trust_on_rejection": val}))
+        cfg = _social_config({"update_trust_on_rejection": val})
         validate_config(cfg)
 
 
 def test_validate_social_update_trust_on_rejection_invalid():
     """Non-boolean update_trust_on_rejection is rejected."""
-    cfg = OmegaConf.create(_social_config({"update_trust_on_rejection": "yes"}))
+    cfg = _social_config({"update_trust_on_rejection": "yes"})
     with pytest.raises(
         ValueError,
         match="agent.defaults.social.update_trust_on_rejection must be boolean",
@@ -987,7 +935,7 @@ def test_social_params_profile_overrides_defaults():
 
 def test_social_params_absent_uses_agent_defaults():
     """When social section is omitted, Agent defaults (1.0 / 0.0 / True) apply."""
-    cfg = OmegaConf.create(_config([{"name": "default", "count": 2}]))
+    cfg = _config([{"name": "default", "count": 2}])
     validate_config(cfg)
     world = build_world(cfg)
 

@@ -4,7 +4,7 @@ import os
 import tempfile
 
 import pytest
-from omegaconf import OmegaConf
+import yaml
 
 import simlab.experiment_io as experiment_io
 from simlab.experiment_io import write_run_artifacts
@@ -41,7 +41,7 @@ CONFIG_DICT = {
 @pytest.fixture
 def config_path():
     with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-        OmegaConf.save(CONFIG_DICT, f.name)
+        yaml.dump(CONFIG_DICT, f)
         path = f.name
     try:
         yield path

@@ -8,9 +8,7 @@ from dataclasses import dataclass
 from time import perf_counter
 from typing import Any
 
-from omegaconf import OmegaConf
-
-from simlab.config import build_world, load_config
+from simlab.config import build_world, load_config, materialize_config
 from simlab.run_analysis import (
     RunSummary,
     compute_run_summary,
@@ -76,7 +74,7 @@ def execute_run(request: RunRequest) -> RunResult:
     """
     cfg = load_config(request.config_path)
     world = build_world(cfg)
-    resolved_config: dict[str, Any] = OmegaConf.to_container(cfg, resolve=True)
+    resolved_config: dict[str, Any] = materialize_config(cfg)
 
     telemetry = Telemetry()
     initial_row = telemetry.record_initial(world)
@@ -98,7 +96,7 @@ def execute_run(request: RunRequest) -> RunResult:
         config_path=request.config_path,
         config_fingerprint=_fingerprint_resolved_config(resolved_config),
         resolved_config=resolved_config,
-        world_seed=int(cfg.world.rng_seed),
+        world_seed=int(cfg["world"]["rng_seed"]),
         requested_steps=request.steps,
         completed_steps=request.steps,
         num_agents=len(world.agents),
