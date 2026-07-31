@@ -146,7 +146,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         "--run-id",
         type=str,
         default=None,
-        help="Explicit run id to use (default: generated)",
+        help="Explicit run id to use (default: generated). Must be unique "
+        "across any concurrently running writers to the same output-dir.",
     )
     parser.add_argument(
         "--overwrite",

@@ -200,3 +200,19 @@ def test_write_run_artifacts_detects_concurrent_writer_when_not_overwriting(
 
     # The "other writer's" artifact must survive untouched.
     assert os.path.isfile(os.path.join(final_dir, "sentinel.txt"))
+
+
+def test_write_run_artifacts_does_not_mask_unrelated_rename_failure(
+    run_result, tmp_path, monkeypatch
+):
+    """An os.rename() failure that isn't actually a run_id collision (disk
+    full, permissions, etc.) must surface as-is, not get reinterpreted as
+    FileExistsError just because overwrite=False."""
+
+    def _boom(*args, **kwargs):
+        raise OSError("simulated unrelated failure")
+
+    monkeypatch.setattr(os, "rename", _boom)
+
+    with pytest.raises(OSError, match="simulated unrelated failure"):
+        write_run_artifacts(run_result, str(tmp_path))

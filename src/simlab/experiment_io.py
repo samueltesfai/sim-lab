@@ -86,6 +86,13 @@ def write_run_artifacts(
     moved into place only once complete, so a crash or exception mid-write
     never leaves a partially-written run directory at the final path.
 
+    This function does not coordinate across processes: concurrent callers
+    must use distinct ``run_id``s. Two writers racing on the *same* run_id
+    is only made to fail safely (never silently clobber) when ``overwrite``
+    is False; with ``overwrite=True`` a concurrent writer to the same
+    run_id can still raise, since "overwrite" only promises to replace
+    whatever was there when this call started, not to out-wait a rival.
+
     :raises FileExistsError: if the run directory already exists and
         ``overwrite`` is False.
     :return: the final run directory path.
@@ -115,11 +122,12 @@ def write_run_artifacts(
         try:
             os.rename(tmp_dir, final_dir)
         except OSError as exc:
-            # A concurrent writer won the race and populated final_dir between
-            # our check above and this rename; the OS refuses to rename onto
-            # a non-empty directory, so surface the same error the caller
-            # would have gotten had they lost the race up front.
-            if not overwrite:
+            # os.rename() refuses to land on a non-empty directory, so if a
+            # concurrent writer populated final_dir between our check above
+            # and this rename, that's what we land here for -- confirm that
+            # is really what happened (rather than assuming any OSError
+            # means a lost race) before reporting it as a collision.
+            if not overwrite and os.path.exists(final_dir):
                 raise FileExistsError(
                     f"Run directory already exists: {final_dir} "
                     "(pass overwrite=True to replace it)"
