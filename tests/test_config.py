@@ -10,7 +10,8 @@ from simlab.config import (
     expand_agent_specs,
     build_world,
 )
-from simlab.sim import ActionType, MemoryType, Snapshot, World
+from simlab.kernel_types import ActionType, MemoryType, Snapshot
+from simlab.world import World
 
 
 def _build_valid_world(config_dict: dict) -> World:

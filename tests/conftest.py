@@ -7,7 +7,8 @@ internal APIs only needs to be reflected here, not in every test.
 
 import pytest
 
-from simlab.sim import Agent, MemoryType
+from simlab.agent import Agent
+from simlab.kernel_types import MemoryType
 
 
 def seed_memory(

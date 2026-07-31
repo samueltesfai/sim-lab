@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from simlab.viz.scene import Scene
-from simlab.sim import Snapshot
+from simlab.kernel_types import Snapshot
 from simlab.telemetry import TelemetryRow
 
 

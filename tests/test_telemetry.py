@@ -4,7 +4,8 @@ import math
 
 import pytest
 
-from simlab.sim import Agent, World
+from simlab.agent import Agent
+from simlab.world import World
 from simlab.telemetry import Telemetry
 
 

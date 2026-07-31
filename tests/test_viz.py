@@ -3,7 +3,9 @@ import numpy as np
 import networkx as nx
 from unittest.mock import Mock, patch
 
-from simlab.sim import World, Agent, Snapshot
+from simlab.world import World
+from simlab.agent import Agent
+from simlab.kernel_types import Snapshot
 from simlab.telemetry import Telemetry
 from simlab.viz.scene import Scene, build_scene
 from simlab.viz.view_model import compute_viewmodel

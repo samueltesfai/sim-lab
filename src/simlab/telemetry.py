@@ -5,7 +5,8 @@ import csv
 import json
 import math
 
-from simlab.sim import Snapshot, World
+from simlab.kernel_types import Snapshot
+from simlab.world import World
 
 
 @dataclass(frozen=True, slots=True)

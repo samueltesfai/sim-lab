@@ -1,6 +1,8 @@
 from omegaconf import OmegaConf
 import os
-from simlab.sim import World, Agent, ActionType, MemoryType
+from simlab.world import World
+from simlab.agent import Agent
+from simlab.kernel_types import ActionType, MemoryType
 
 
 VALID_ACTIONS = {"IDLE", "VERIFY", "COMMUNICATE", "BROADCAST"}
