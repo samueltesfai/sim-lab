@@ -145,8 +145,9 @@ in the simulation.
 
 ### `world.noise`
 
-Standard deviation of the Gaussian noise added to each evidence channel. All
-three keys are required and must be non-negative.
+Standard deviation of the Gaussian noise added to each evidence channel. Each
+key is optional and defaults to `0.0` if omitted; any value present must be
+non-negative.
 
 | Key       | Applies to                          |
 | --------- | ----------------------------------- |
