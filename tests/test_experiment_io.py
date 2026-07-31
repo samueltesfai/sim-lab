@@ -135,12 +135,13 @@ def test_write_run_artifacts_overwrite_replaces_existing_run(config_path, tmp_pa
 
 
 def test_write_run_artifacts_leaves_no_partial_output_on_failure(
-    run_result, tmp_path, monkeypatch
+    run_result, tmp_path, mocker
 ):
-    def _boom(*args, **kwargs):
-        raise RuntimeError("simulated failure")
-
-    monkeypatch.setattr(experiment_io, "_write_trajectory_csv", _boom)
+    mocker.patch.object(
+        experiment_io,
+        "_write_trajectory_csv",
+        side_effect=RuntimeError("simulated failure"),
+    )
 
     with pytest.raises(RuntimeError):
         write_run_artifacts(run_result, str(tmp_path))
@@ -177,7 +178,7 @@ def test_validate_run_id_rejects_empty_string():
 
 
 def test_write_run_artifacts_detects_concurrent_writer_when_not_overwriting(
-    run_result, tmp_path, monkeypatch
+    run_result, tmp_path, mocker
 ):
     """A second writer must not silently clobber a run that appeared between
     this call's existence check and its final rename, even though neither
@@ -191,8 +192,10 @@ def test_write_run_artifacts_detects_concurrent_writer_when_not_overwriting(
         with open(os.path.join(final_dir, "sentinel.txt"), "w") as f:
             f.write("winner")
 
-    monkeypatch.setattr(
-        experiment_io, "_write_trajectory_csv", _write_then_simulate_concurrent_writer
+    mocker.patch.object(
+        experiment_io,
+        "_write_trajectory_csv",
+        side_effect=_write_then_simulate_concurrent_writer,
     )
 
     with pytest.raises(FileExistsError):
@@ -203,16 +206,14 @@ def test_write_run_artifacts_detects_concurrent_writer_when_not_overwriting(
 
 
 def test_write_run_artifacts_does_not_mask_unrelated_rename_failure(
-    run_result, tmp_path, monkeypatch
+    run_result, tmp_path, mocker
 ):
     """An os.rename() failure that isn't actually a run_id collision (disk
     full, permissions, etc.) must surface as-is, not get reinterpreted as
     FileExistsError just because overwrite=False."""
-
-    def _boom(*args, **kwargs):
-        raise OSError("simulated unrelated failure")
-
-    monkeypatch.setattr(os, "rename", _boom)
+    mocker.patch.object(
+        os, "rename", side_effect=OSError("simulated unrelated failure")
+    )
 
     with pytest.raises(OSError, match="simulated unrelated failure"):
         write_run_artifacts(run_result, str(tmp_path))
