@@ -1,7 +1,7 @@
 import pytest
 
 from simlab.agent import Agent
-from simlab.analysis import (
+from simlab.run_analysis import (
     compute_run_summary,
     extract_scenario_features,
     find_convergence_tick,
