@@ -241,6 +241,21 @@ def materialize_config(cfg: dict) -> dict:
     }
 
 
+def materialize_scenario(cfg: dict) -> dict:
+    """Return the behaviorally meaningful configuration -- the fully
+    effective config minus ``world.rng_seed``.
+
+    Two runs with different seeds are stochastic replicates of the same
+    scenario, not different scenarios, so the seed is deliberately excluded
+    here: this is what a scenario fingerprint should be hashed from, as
+    opposed to ``materialize_config`` (which keeps the seed, for humans
+    inspecting a single run's resolved config).
+    """
+    full = materialize_config(cfg)
+    world = {k: v for k, v in full["world"].items() if k != "rng_seed"}
+    return {"world": world, "agent": full["agent"]}
+
+
 def build_world(cfg: dict) -> World:
     """Build a World instance from a validated configuration."""
     world_settings = _materialize_world_settings(cfg)

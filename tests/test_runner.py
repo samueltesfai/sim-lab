@@ -110,6 +110,8 @@ def test_execute_run_populates_metadata(config_path):
     assert metadata.schema_version
     assert metadata.run_id
     assert metadata.config_path == config_path
+    assert metadata.scenario_fingerprint
+    assert metadata.run_spec_fingerprint
     assert metadata.world_seed == 42
     assert metadata.requested_steps == 2
     assert metadata.completed_steps == 2
@@ -133,14 +135,23 @@ def test_execute_run_uses_provided_run_id(config_path):
     assert result.metadata.run_id == "my-run"
 
 
-def test_execute_run_config_fingerprint_is_stable(config_path):
+def test_execute_run_fingerprints_are_stable(config_path):
     result_a = execute_run(RunRequest(config_path=config_path, steps=1))
     result_b = execute_run(RunRequest(config_path=config_path, steps=1))
 
-    assert result_a.metadata.config_fingerprint == result_b.metadata.config_fingerprint
+    assert (
+        result_a.metadata.scenario_fingerprint == result_b.metadata.scenario_fingerprint
+    )
+    assert (
+        result_a.metadata.run_spec_fingerprint == result_b.metadata.run_spec_fingerprint
+    )
 
 
-def test_execute_run_config_fingerprint_changes_with_config(config_path):
+def test_execute_run_scenario_fingerprint_ignores_seed(config_path):
+    """Different seeds are stochastic replicates of the same scenario, not
+    different scenarios -- scenario_fingerprint must not depend on the seed,
+    even though run_spec_fingerprint (which identifies a specific requested
+    replicate) must."""
     other_config = {**CONFIG_DICT, "world": {**CONFIG_DICT["world"], "rng_seed": 7}}
     with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
         yaml.dump(other_config, f)
@@ -149,19 +160,51 @@ def test_execute_run_config_fingerprint_changes_with_config(config_path):
     try:
         result_a = execute_run(RunRequest(config_path=config_path, steps=1))
         result_b = execute_run(RunRequest(config_path=other_path, steps=1))
+
         assert (
-            result_a.metadata.config_fingerprint != result_b.metadata.config_fingerprint
+            result_a.metadata.scenario_fingerprint
+            == result_b.metadata.scenario_fingerprint
+        )
+        assert (
+            result_a.metadata.run_spec_fingerprint
+            != result_b.metadata.run_spec_fingerprint
         )
     finally:
         os.unlink(other_path)
 
 
-def test_execute_run_config_fingerprint_same_for_explicit_and_omitted_defaults(
+def test_execute_run_scenario_fingerprint_changes_with_behavioral_change(config_path):
+    """A behavioral change (unlike the seed) must change scenario_fingerprint."""
+    other_config = {
+        **CONFIG_DICT,
+        "world": {
+            **CONFIG_DICT["world"],
+            "noise": {"OBSERVE": 0.9, "HEAR": 0.9, "VERIFY": 0.9},
+        },
+    }
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+        yaml.dump(other_config, f)
+        other_path = f.name
+
+    try:
+        result_a = execute_run(RunRequest(config_path=config_path, steps=1))
+        result_b = execute_run(RunRequest(config_path=other_path, steps=1))
+
+        assert (
+            result_a.metadata.scenario_fingerprint
+            != result_b.metadata.scenario_fingerprint
+        )
+    finally:
+        os.unlink(other_path)
+
+
+def test_execute_run_scenario_fingerprint_same_for_explicit_and_omitted_defaults(
     config_path,
 ):
     """Two configs that build identical simulations -- one omitting
     agent.defaults.observation/trust/social/learning, one spelling out the
-    exact built-in Agent defaults for them -- must fingerprint identically."""
+    exact built-in Agent defaults for them -- must fingerprint identically
+    and must actually produce identical simulation results."""
     explicit_config = {
         **CONFIG_DICT,
         "agent": {
@@ -193,13 +236,26 @@ def test_execute_run_config_fingerprint_same_for_explicit_and_omitted_defaults(
         explicit_result = execute_run(RunRequest(config_path=explicit_path, steps=1))
 
         assert (
-            omitted_result.metadata.config_fingerprint
-            == explicit_result.metadata.config_fingerprint
+            omitted_result.metadata.scenario_fingerprint
+            == explicit_result.metadata.scenario_fingerprint
+        )
+        assert (
+            omitted_result.metadata.run_spec_fingerprint
+            == explicit_result.metadata.run_spec_fingerprint
         )
         assert (
             omitted_result.metadata.resolved_config
             == explicit_result.metadata.resolved_config
         )
+        # Same effective config -> not just the same fingerprint, but the
+        # actual simulation results must be identical too. step_runtime_ms
+        # is real wall-clock timing, not simulation state, so it's excluded.
+        omitted_rows = [row.to_dict() for row in omitted_result.telemetry]
+        explicit_rows = [row.to_dict() for row in explicit_result.telemetry]
+        for omitted_row, explicit_row in zip(omitted_rows, explicit_rows):
+            omitted_row.pop("step_runtime_ms")
+            explicit_row.pop("step_runtime_ms")
+        assert omitted_rows == explicit_rows
     finally:
         os.unlink(explicit_path)
 

@@ -71,7 +71,8 @@ def test_manifest_json_matches_metadata(run_result, tmp_path):
 
     assert manifest["schema_version"] == run_result.metadata.schema_version
     assert manifest["run_id"] == "test-run"
-    assert manifest["config_fingerprint"] == run_result.metadata.config_fingerprint
+    assert manifest["scenario_fingerprint"] == run_result.metadata.scenario_fingerprint
+    assert manifest["run_spec_fingerprint"] == run_result.metadata.run_spec_fingerprint
     assert manifest["world_seed"] == 42
     assert manifest["completed_steps"] == 3
     assert manifest["profile_counts"] == {"default": 5}

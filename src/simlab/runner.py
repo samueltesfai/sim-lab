@@ -8,7 +8,12 @@ from dataclasses import dataclass
 from time import perf_counter
 from typing import Any
 
-from simlab.config import build_world, load_config, materialize_config
+from simlab.config import (
+    build_world,
+    load_config,
+    materialize_config,
+    materialize_scenario,
+)
 from simlab.run_analysis import (
     RunSummary,
     compute_run_summary,
@@ -35,7 +40,8 @@ class RunMetadata:
     schema_version: str
     run_id: str
     config_path: str
-    config_fingerprint: str
+    scenario_fingerprint: str
+    run_spec_fingerprint: str
     resolved_config: dict[str, Any]
     world_seed: int
     requested_steps: int
@@ -53,10 +59,10 @@ class RunResult:
     telemetry: list[TelemetryRow]
 
 
-def _fingerprint_resolved_config(resolved_config: dict[str, Any]) -> str:
-    """Hash the fully-resolved config so identical scenarios share an
-    identifier regardless of the source file's path or formatting."""
-    canonical = json.dumps(resolved_config, sort_keys=True, separators=(",", ":"))
+def _fingerprint(data: dict[str, Any]) -> str:
+    """Hash a JSON-safe dict so identical inputs share an identifier
+    regardless of key order or the source file's path/formatting."""
+    canonical = json.dumps(data, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
@@ -66,15 +72,28 @@ def execute_run(request: RunRequest) -> RunResult:
 
     Records an initial telemetry row followed by one row per completed step,
     timing each step in isolation so visualization/pause overhead never
-    contaminates the runtime measurement. Also derives run metadata (a
-    reproducibility fingerprint for the resolved config, world seed, run id),
-    scenario features describing the conditions the run started under, and a
-    run summary aggregating the full trajectory into initial/final state,
-    activity totals, and a conservative set of outcome labels.
+    contaminates the runtime measurement. Also derives run metadata --
+    a ``scenario_fingerprint`` identifying the behaviorally meaningful
+    configuration (excluding the seed, since different seeds are stochastic
+    replicates of the same scenario, not different scenarios), a
+    ``run_spec_fingerprint`` identifying this exact requested replicate
+    (scenario + seed + steps), and a ``run_id`` for this specific execution
+    -- scenario features describing the conditions the run started under,
+    and a run summary aggregating the full trajectory into initial/final
+    state, activity totals, and a conservative set of outcome labels.
     """
     cfg = load_config(request.config_path)
     world = build_world(cfg)
     resolved_config: dict[str, Any] = materialize_config(cfg)
+    scenario_fingerprint = _fingerprint(materialize_scenario(cfg))
+    world_seed = int(cfg["world"]["rng_seed"])
+    run_spec_fingerprint = _fingerprint(
+        {
+            "scenario_fingerprint": scenario_fingerprint,
+            "world_seed": world_seed,
+            "requested_steps": request.steps,
+        }
+    )
 
     telemetry = Telemetry()
     initial_row = telemetry.record_initial(world)
@@ -94,9 +113,10 @@ def execute_run(request: RunRequest) -> RunResult:
         schema_version=SCHEMA_VERSION,
         run_id=request.run_id or uuid.uuid4().hex,
         config_path=request.config_path,
-        config_fingerprint=_fingerprint_resolved_config(resolved_config),
+        scenario_fingerprint=scenario_fingerprint,
+        run_spec_fingerprint=run_spec_fingerprint,
         resolved_config=resolved_config,
-        world_seed=int(cfg["world"]["rng_seed"]),
+        world_seed=world_seed,
         requested_steps=request.steps,
         completed_steps=request.steps,
         num_agents=len(world.agents),
