@@ -1,6 +1,7 @@
 import pytest
 
 from simlab.agent import Agent
+from simlab.kernel_types import ActionType
 from simlab.run_analysis import (
     compute_run_summary,
     extract_scenario_features,
@@ -81,6 +82,49 @@ def test_extract_scenario_features_agent_parameter_stats():
 
     assert features["agent_attention_mean"] == pytest.approx(0.5)
     assert features["agent_attention_std"] == pytest.approx(0.3)
+
+
+def test_extract_scenario_features_includes_all_behavior_driving_params():
+    """Channel weights, action preferences/costs, and update_trust_on_rejection
+    must be captured -- two scenarios differing only in these would otherwise
+    look identical in scenario features despite behaving differently."""
+    world = _build_world(
+        [
+            (
+                "vocal",
+                {
+                    "observe_weight": 0.9,
+                    "hear_weight": 0.1,
+                    "verify_weight": 0.2,
+                    "social_update_trust_on_rejection": True,
+                    "action_preference": {ActionType.VERIFY: 1.0},
+                    "action_cost": {ActionType.VERIFY: 0.1},
+                },
+            ),
+            (
+                "quiet",
+                {
+                    "observe_weight": 0.1,
+                    "hear_weight": 0.9,
+                    "verify_weight": 0.8,
+                    "social_update_trust_on_rejection": False,
+                    "action_preference": {ActionType.VERIFY: 0.0},
+                    "action_cost": {ActionType.VERIFY: 0.9},
+                },
+            ),
+        ]
+    )
+    telemetry = Telemetry()
+    initial_row = telemetry.record_initial(world)
+
+    features = extract_scenario_features(world, initial_row)
+
+    assert features["agent_observe_weight_mean"] == pytest.approx(0.5)
+    assert features["agent_hear_weight_mean"] == pytest.approx(0.5)
+    assert features["agent_verify_weight_mean"] == pytest.approx(0.5)
+    assert features["agent_update_trust_on_rejection_fraction"] == pytest.approx(0.5)
+    assert features["agent_action_preference.VERIFY_mean"] == pytest.approx(0.5)
+    assert features["agent_action_cost.VERIFY_mean"] == pytest.approx(0.5)
 
 
 def test_extract_scenario_features_initial_state_matches_telemetry_row():
@@ -236,6 +280,22 @@ def test_find_convergence_tick_ignores_initial_row():
 
     # Only 19 stepped rows are stable -- one short of the window.
     assert tick is None
+
+
+@pytest.mark.parametrize("bad_window", [0, -1])
+def test_find_convergence_tick_rejects_nonpositive_window(bad_window):
+    """window=0 previously let an unstable first row satisfy
+    consecutive == window on the first iteration, indexing past the end of a
+    single-row trajectory instead of raising."""
+    rows = [_row(0, mean_abs_delta=0.5, mean_claim_belief_variance=0.5)]
+
+    with pytest.raises(ValueError, match="window must be >= 1"):
+        find_convergence_tick(
+            rows,
+            delta_threshold=0.001,
+            disagreement_threshold=0.0025,
+            window=bad_window,
+        )
 
 
 def test_compute_run_summary_raises_on_empty_telemetry():

@@ -4,6 +4,7 @@ import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from simlab.kernel_types import ActionType
 from simlab.telemetry import TelemetryRow
 from simlab.world import World
 
@@ -80,6 +81,9 @@ def _agent_parameter_features(world: World) -> dict[str, float]:
         "agent_attention": [a.observation_attention for a in world.agents],
         "agent_bias": [a.observation_bias for a in world.agents],
         "agent_learning_rate": [a.learning_rate for a in world.agents],
+        "agent_observe_weight": [a.observe_weight for a in world.agents],
+        "agent_hear_weight": [a.hear_weight for a in world.agents],
+        "agent_verify_weight": [a.verify_weight for a in world.agents],
         "agent_default_trust": [a.default_trust for a in world.agents],
         "agent_confidence_bound": [a.social_confidence_bound for a in world.agents],
         "agent_trust_update_rate": [a.social_trust_update_rate for a in world.agents],
@@ -90,6 +94,24 @@ def _agent_parameter_features(world: World) -> dict[str, float]:
         mean, std = _mean_std(values)
         features[f"{label}_mean"] = mean
         features[f"{label}_std"] = std
+
+    num_agents = len(world.agents)
+    features["agent_update_trust_on_rejection_fraction"] = (
+        sum(1 for a in world.agents if a.social_update_trust_on_rejection) / num_agents
+        if num_agents
+        else 0.0
+    )
+
+    for action in ActionType:
+        pref_mean, pref_std = _mean_std(
+            [a.action_preference[action] for a in world.agents]
+        )
+        cost_mean, cost_std = _mean_std([a.action_cost[action] for a in world.agents])
+        features[f"agent_action_preference.{action.name}_mean"] = pref_mean
+        features[f"agent_action_preference.{action.name}_std"] = pref_std
+        features[f"agent_action_cost.{action.name}_mean"] = cost_mean
+        features[f"agent_action_cost.{action.name}_std"] = cost_std
+
     return features
 
 
@@ -200,7 +222,12 @@ def find_convergence_tick(
     These are analysis thresholds for detecting stability after the fact,
     not kernel parameters -- they say nothing about *why* a trajectory
     stabilized (agreement vs. correctness).
+
+    :raises ValueError: if ``window`` is less than 1.
     """
+    if window < 1:
+        raise ValueError(f"window must be >= 1, got {window}")
+
     stepped = [row for row in rows if row.tick >= 0]
     if len(stepped) < window:
         return None
