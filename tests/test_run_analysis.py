@@ -306,6 +306,18 @@ def test_compute_run_summary_min_max_truth_error_over_trajectory():
     assert summary.max_mean_truth_error == 0.6
 
 
+def test_compute_run_summary_auc_includes_initial_to_first_step_interval():
+    # A one-step run going from 0.9 to 0.1 spends the whole tick traversing
+    # that interval, so the time-average over it is 0.5, not the tick-0
+    # value (0.1) that a fix excluding the initial row would produce.
+    initial = _row(-1, mean_abs_error_to_truth=0.9)
+    steps = [_row(0, mean_abs_error_to_truth=0.1)]
+
+    summary = compute_run_summary([initial, *steps], total_runtime_ms=0.0)
+
+    assert summary.mean_truth_error_auc == pytest.approx(0.5)
+
+
 def test_compute_run_summary_step_runtime_stats():
     initial = _row(-1)
     steps = [_row(t, step_runtime_ms=rt) for t, rt in enumerate([1.0, 2.0, 3.0, 4.0])]

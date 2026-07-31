@@ -247,6 +247,10 @@ def compute_run_summary(
     final_row = stepped_rows[-1] if stepped_rows else initial_row
 
     truth_errors = [row.mean_abs_error_to_truth for row in stepped_rows]
+    # The trapezoidal average needs the initial-to-tick-0 interval too, or a
+    # one-step run's error change (e.g. 0.9 -> 0.1) is reported as the final
+    # value (0.1) instead of the interval average (0.5).
+    truth_error_trajectory = [initial_row.mean_abs_error_to_truth, *truth_errors]
     deltas = [row.mean_abs_delta for row in stepped_rows]
     step_runtimes = [
         row.step_runtime_ms for row in stepped_rows if row.step_runtime_ms is not None
@@ -281,7 +285,7 @@ def compute_run_summary(
         max_mean_truth_error=(
             max(truth_errors) if truth_errors else initial_row.mean_abs_error_to_truth
         ),
-        mean_truth_error_auc=_trapezoidal_mean(truth_errors),
+        mean_truth_error_auc=_trapezoidal_mean(truth_error_trajectory),
         mean_belief_volatility=_mean(deltas),
         max_belief_volatility=max(deltas) if deltas else 0.0,
         convergence_tick=convergence_tick,
