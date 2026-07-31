@@ -48,7 +48,7 @@ The visualization system renders the social network in real time, allowing you t
 Simulation scenarios are defined in `configs/` and loaded through `config.py`.
 
 See the [model documentation](docs/model.md) for the simulation design, and the
-[configuration reference](docs/config.md) for the YAML schema and CLI options.
+[configuration reference](docs/config.md) for the YAML schema.
 
 ---
 
