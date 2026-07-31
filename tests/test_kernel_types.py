@@ -1,6 +1,6 @@
 import pytest
 
-from simlab.types import Action, ActionType, clamp
+from simlab.kernel_types import Action, ActionType, clamp
 
 
 def test_clamp():

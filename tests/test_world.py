@@ -4,7 +4,7 @@ import io
 
 from simlab.agent import Agent
 from simlab.world import World
-from simlab.types import Action, ActionType, MemoryType, Snapshot
+from simlab.kernel_types import Action, ActionType, MemoryType, Snapshot
 
 
 def _build_world(n: int = 5) -> World:

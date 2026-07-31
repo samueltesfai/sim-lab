@@ -4,7 +4,7 @@ from collections import defaultdict
 import random
 from typing import TYPE_CHECKING
 
-from simlab.types import (
+from simlab.kernel_types import (
     Action,
     ActionType,
     AgentUpdateTrace,

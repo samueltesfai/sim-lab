@@ -4,7 +4,7 @@ from collections import defaultdict
 
 from simlab.agent import Agent
 from simlab.world import World
-from simlab.types import Action, ActionType, Memory, MemoryType, ObservationEvent
+from simlab.kernel_types import Action, ActionType, Memory, MemoryType, ObservationEvent
 
 
 def _build_world(n: int = 5) -> World:

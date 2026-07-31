@@ -1,4 +1,4 @@
-from simlab.types import (
+from simlab.kernel_types import (
     ActionType,
     AgentUpdateTrace,
     MemoryType,

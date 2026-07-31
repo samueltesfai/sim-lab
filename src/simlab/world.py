@@ -4,7 +4,7 @@ from collections import defaultdict
 import random
 
 from simlab.agent import Agent
-from simlab.types import (
+from simlab.kernel_types import (
     Action,
     ActionTrace,
     ActionType,
