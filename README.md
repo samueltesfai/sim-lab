@@ -54,20 +54,33 @@ See the [model documentation](docs/model.md) for the simulation design, and the
 
 ## Getting Started
 
-Install dependencies and run:
+Install dependencies:
 
 ```bash
 pip install -e .
-python -m simlab
 ```
 
-Run tests:
+This installs two commands, `simlab-viz` and `simlab-run` (equivalently runnable as
+`python -m simlab` and `python -m simlab.runner`). Pass `-h` to either for the full
+list of flags.
+
+### Visualization
+
+Runs a simulation with a live matplotlib view of the network:
 
 ```bash
-pytest
+simlab-viz --config configs/default.yaml --steps 500
 ```
 
-Pass `-h` for the full list of CLI flags.
+### Headless runs
+
+Runs a simulation with no visualization and writes a self-contained run
+artifact (`manifest.json`, `summary.json`, `trajectory.csv`) to
+`<output-dir>/<run-id>/`:
+
+```bash
+simlab-run --config configs/default.yaml --steps 500 --output-dir runs/
+```
 
 ---
 
