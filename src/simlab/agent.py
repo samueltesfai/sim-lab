@@ -21,6 +21,35 @@ if TYPE_CHECKING:
     from simlab.world import World
 
 
+DEFAULT_SETTINGS: dict = {
+    "observation": {"attention": 1.0, "bias": 0.0},
+    "trust": {"default": 0.5},
+    "learning": {
+        "rate": 0.1,
+        "observe_weight": 0.6,
+        "hear_weight": 0.3,
+        "verify_weight": 1.0,
+    },
+    "social": {
+        "confidence_bound": 1.0,
+        "trust_update_rate": 0.0,
+        "update_trust_on_rejection": True,
+    },
+    "action_preference": {
+        "IDLE": 0.0,
+        "VERIFY": 0.9,
+        "COMMUNICATE": 0.7,
+        "BROADCAST": 0.5,
+    },
+    "action_cost": {
+        "IDLE": 0.0,
+        "VERIFY": 0.35,
+        "COMMUNICATE": 0.15,
+        "BROADCAST": 0.30,
+    },
+}
+
+
 class Agent:
     def __init__(
         self,
@@ -29,16 +58,20 @@ class Agent:
         action_preference: dict[ActionType, float] | None = None,
         action_cost: dict[ActionType, float] | None = None,
         profile_name: str = "default",
-        observation_attention: float = 1.0,
-        observation_bias: float = 0.0,
-        default_trust: float = 0.5,
-        learning_rate: float = 0.1,
-        observe_weight: float = 0.6,
-        hear_weight: float = 0.3,
-        verify_weight: float = 1.0,
-        social_confidence_bound: float = 1.0,
-        social_trust_update_rate: float = 0.0,
-        social_update_trust_on_rejection: bool = True,
+        observation_attention: float = DEFAULT_SETTINGS["observation"]["attention"],
+        observation_bias: float = DEFAULT_SETTINGS["observation"]["bias"],
+        default_trust: float = DEFAULT_SETTINGS["trust"]["default"],
+        learning_rate: float = DEFAULT_SETTINGS["learning"]["rate"],
+        observe_weight: float = DEFAULT_SETTINGS["learning"]["observe_weight"],
+        hear_weight: float = DEFAULT_SETTINGS["learning"]["hear_weight"],
+        verify_weight: float = DEFAULT_SETTINGS["learning"]["verify_weight"],
+        social_confidence_bound: float = DEFAULT_SETTINGS["social"]["confidence_bound"],
+        social_trust_update_rate: float = DEFAULT_SETTINGS["social"][
+            "trust_update_rate"
+        ],
+        social_update_trust_on_rejection: bool = DEFAULT_SETTINGS["social"][
+            "update_trust_on_rejection"
+        ],
     ):
         self.id = id
         self.rng = random.Random(rng_seed)
@@ -67,17 +100,10 @@ class Agent:
         self.memory: list[Memory] = []
         self._mem_cursor = 0  # Cursor to track memories for belief updates
         default_action_preference = {
-            ActionType.IDLE: 0.0,
-            ActionType.VERIFY: 0.9,
-            ActionType.COMMUNICATE: 0.7,
-            ActionType.BROADCAST: 0.5,
+            ActionType[k]: v for k, v in DEFAULT_SETTINGS["action_preference"].items()
         }
-
         default_action_cost = {
-            ActionType.IDLE: 0.0,
-            ActionType.VERIFY: 0.35,
-            ActionType.COMMUNICATE: 0.15,
-            ActionType.BROADCAST: 0.30,
+            ActionType[k]: v for k, v in DEFAULT_SETTINGS["action_cost"].items()
         }
         self.action_preference: dict[ActionType, float] = default_action_preference | (
             action_preference or {}

@@ -15,6 +15,9 @@ from simlab.kernel_types import (
 )
 
 
+DEFAULT_NOISE: dict = {"OBSERVE": 0.0, "HEAR": 0.0, "VERIFY": 0.0}
+
+
 class World:
     def __init__(
         self,
@@ -28,11 +31,9 @@ class World:
         self._agents = {a.id: a for a in agents}
         self.tick = 0
         self.rng = random.Random(rng_seed)
-        self.noise = {
-            MemoryType.OBSERVE: 0.0,
-            MemoryType.HEAR: 0.0,
-            MemoryType.VERIFY: 0.0,
-        } | (noise or {})
+        self.noise = {MemoryType[k]: v for k, v in DEFAULT_NOISE.items()} | (
+            noise or {}
+        )
         self.truths = truths
         # private_event_rate: per-agent per-tick chance of a private observation
         #   event visible only to that agent.
