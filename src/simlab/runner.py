@@ -10,9 +10,8 @@ from typing import Any
 
 from omegaconf import OmegaConf
 
+from simlab.analysis import RunSummary, compute_run_summary, extract_scenario_features
 from simlab.config import build_world, load_config
-from simlab.run_summary import RunSummary, compute_run_summary
-from simlab.scenario import extract_scenario_features
 from simlab.telemetry import Telemetry, TelemetryRow
 
 SCHEMA_VERSION = "0.1.0"
