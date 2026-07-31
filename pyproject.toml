@@ -11,6 +11,10 @@ dependencies = [
     "pandas>=3.0.1",
 ]
 
+[project.scripts]
+simlab-run = "simlab.runner:main"
+simlab-viz = "simlab.main:main"
+
 [dependency-groups]
 dev = [
     "pytest>=9.0.2",

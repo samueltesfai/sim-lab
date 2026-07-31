@@ -114,7 +114,6 @@ def execute_run(request: RunRequest) -> RunResult:
 
 def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="python -m simlab.runner",
         description="Run a simulation headlessly and write run artifacts "
         "(manifest.json, summary.json, trajectory.csv).",
     )
