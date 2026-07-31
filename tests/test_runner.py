@@ -62,6 +62,11 @@ def test_execute_run_zero_steps_records_only_initial_row(config_path):
     assert result.telemetry[0].tick == -1
 
 
+def test_run_request_rejects_negative_steps(config_path):
+    with pytest.raises(ValueError):
+        RunRequest(config_path=config_path, steps=-1)
+
+
 def test_execute_run_measures_step_runtime(config_path):
     result = execute_run(RunRequest(config_path=config_path, steps=3))
 

@@ -27,6 +27,10 @@ class RunRequest:
     steps: int
     run_id: str | None = None
 
+    def __post_init__(self) -> None:
+        if self.steps < 0:
+            raise ValueError(f"steps must be >= 0, got {self.steps}")
+
 
 @dataclass(frozen=True, slots=True)
 class RunMetadata:

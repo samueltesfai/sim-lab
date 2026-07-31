@@ -149,3 +149,54 @@ def test_write_run_artifacts_leaves_no_partial_output_on_failure(
     assert not os.path.exists(final_dir)
     # No stray temp directories left behind either.
     assert os.listdir(str(tmp_path)) == []
+
+
+@pytest.mark.parametrize(
+    "bad_run_id", [".", "..", "../evil", "sub/dir", "sub/../../evil"]
+)
+def test_write_run_artifacts_rejects_unsafe_run_id(config_path, tmp_path, bad_run_id):
+    # An empty run_id can't reach here via execute_run: RunRequest.run_id is
+    # falsy-or-generated, so it's covered directly against _validate_run_id
+    # instead (see test_validate_run_id_rejects_empty_string).
+    result = execute_run(
+        RunRequest(config_path=config_path, steps=1, run_id=bad_run_id)
+    )
+
+    with pytest.raises(ValueError):
+        write_run_artifacts(result, str(tmp_path))
+
+    # Nothing was written outside (or even inside) tmp_path.
+    parent = os.path.dirname(str(tmp_path))
+    assert not os.path.exists(os.path.join(parent, "evil"))
+    assert os.listdir(str(tmp_path)) == []
+
+
+def test_validate_run_id_rejects_empty_string():
+    with pytest.raises(ValueError):
+        experiment_io._validate_run_id("")
+
+
+def test_write_run_artifacts_detects_concurrent_writer_when_not_overwriting(
+    run_result, tmp_path, monkeypatch
+):
+    """A second writer must not silently clobber a run that appeared between
+    this call's existence check and its final rename, even though neither
+    call requested overwrite=True."""
+    final_dir = os.path.join(str(tmp_path), "test-run")
+    original_write_csv = experiment_io._write_trajectory_csv
+
+    def _write_then_simulate_concurrent_writer(rows, path):
+        original_write_csv(rows, path)
+        os.makedirs(final_dir)
+        with open(os.path.join(final_dir, "sentinel.txt"), "w") as f:
+            f.write("winner")
+
+    monkeypatch.setattr(
+        experiment_io, "_write_trajectory_csv", _write_then_simulate_concurrent_writer
+    )
+
+    with pytest.raises(FileExistsError):
+        write_run_artifacts(run_result, str(tmp_path))
+
+    # The "other writer's" artifact must survive untouched.
+    assert os.path.isfile(os.path.join(final_dir, "sentinel.txt"))

@@ -23,6 +23,19 @@ _LABEL_FIELDS = (
 )
 
 
+def _validate_run_id(run_id: str) -> None:
+    """Reject anything that isn't a single, literal path component.
+
+    ``run_id`` becomes a directory name under ``output_dir``; without this
+    check a value like ``"../../etc"`` would place the run (and, with
+    ``overwrite=True``, an rmtree) outside ``output_dir``.
+    """
+    if not run_id or run_id in (".", "..") or os.path.basename(run_id) != run_id:
+        raise ValueError(
+            f"invalid run_id: {run_id!r} (must be a single path component)"
+        )
+
+
 def _write_trajectory_csv(rows: Sequence[TelemetryRow], path: str) -> None:
     fieldnames = list(TelemetryRow.__annotations__.keys())
     with open(path, "w", newline="", encoding="utf-8") as f:
@@ -77,16 +90,19 @@ def write_run_artifacts(
         ``overwrite`` is False.
     :return: the final run directory path.
     """
-    os.makedirs(output_dir, exist_ok=True)
-    final_dir = os.path.join(output_dir, result.metadata.run_id)
+    run_id = result.metadata.run_id
+    _validate_run_id(run_id)
 
-    if os.path.exists(final_dir) and not overwrite:
+    os.makedirs(output_dir, exist_ok=True)
+    final_dir = os.path.join(output_dir, run_id)
+
+    if not overwrite and os.path.exists(final_dir):
         raise FileExistsError(
             f"Run directory already exists: {final_dir} "
             "(pass overwrite=True to replace it)"
         )
 
-    tmp_dir = tempfile.mkdtemp(prefix=f".{result.metadata.run_id}-", dir=output_dir)
+    tmp_dir = tempfile.mkdtemp(prefix=f".{run_id}-", dir=output_dir)
     try:
         with open(os.path.join(tmp_dir, "manifest.json"), "w", encoding="utf-8") as f:
             json.dump(_build_manifest(result), f, indent=2, sort_keys=True)
@@ -94,9 +110,21 @@ def write_run_artifacts(
             json.dump(_build_summary_doc(result), f, indent=2, sort_keys=True)
         _write_trajectory_csv(result.telemetry, os.path.join(tmp_dir, "trajectory.csv"))
 
-        if os.path.exists(final_dir):
+        if overwrite and os.path.exists(final_dir):
             shutil.rmtree(final_dir)
-        os.rename(tmp_dir, final_dir)
+        try:
+            os.rename(tmp_dir, final_dir)
+        except OSError as exc:
+            # A concurrent writer won the race and populated final_dir between
+            # our check above and this rename; the OS refuses to rename onto
+            # a non-empty directory, so surface the same error the caller
+            # would have gotten had they lost the race up front.
+            if not overwrite:
+                raise FileExistsError(
+                    f"Run directory already exists: {final_dir} "
+                    "(pass overwrite=True to replace it)"
+                ) from exc
+            raise
     except BaseException:
         shutil.rmtree(tmp_dir, ignore_errors=True)
         raise
