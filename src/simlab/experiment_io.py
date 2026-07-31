@@ -80,21 +80,21 @@ def write_run_artifacts(
 ) -> str:
     """
     Write manifest.json, summary.json, and trajectory.csv for a completed
-    run to ``<output_dir>/<run_id>/``.
+    run to `<output_dir>/<run_id>/`.
 
     All three files are written to a temporary sibling directory first and
     moved into place only once complete, so a crash or exception mid-write
     never leaves a partially-written run directory at the final path.
 
     This function does not coordinate across processes: concurrent callers
-    must use distinct ``run_id``s. Two writers racing on the *same* run_id
-    is only made to fail safely (never silently clobber) when ``overwrite``
-    is False; with ``overwrite=True`` a concurrent writer to the same
+    must use distinct `run_id`s. Two writers racing on the *same* run_id
+    is only made to fail safely (never silently clobber) when `overwrite`
+    is False; with `overwrite=True` a concurrent writer to the same
     run_id can still raise, since "overwrite" only promises to replace
     whatever was there when this call started, not to out-wait a rival.
 
     :raises FileExistsError: if the run directory already exists and
-        ``overwrite`` is False.
+        `overwrite` is False.
     :return: the final run directory path.
     """
     run_id = result.metadata.run_id
