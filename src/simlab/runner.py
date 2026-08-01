@@ -59,16 +59,42 @@ class RunResult:
     telemetry: list[TelemetryRow]
 
 
+def _normalize_for_fingerprint(data: Any) -> Any:
+    """Recursively normalize ``-0.0`` to ``0.0`` so behaviorally-equivalent
+    numeric representations hash identically.
+
+    ``json.dumps(-0.0)`` and ``json.dumps(0.0)`` produce different strings
+    even though ``-0.0 == 0.0`` in every arithmetic sense the simulation
+    cares about, which would otherwise give two behaviorally identical
+    scenarios different fingerprints.
+
+    :param data: A JSON-safe value (dict, list, or scalar)
+    :type data: Any
+    :return: The same structure with every ``-0.0`` float replaced by ``0.0``
+    :rtype: Any
+    """
+    if isinstance(data, dict):
+        return {k: _normalize_for_fingerprint(v) for k, v in data.items()}
+    if isinstance(data, list):
+        return [_normalize_for_fingerprint(v) for v in data]
+    if isinstance(data, float):
+        return data + 0.0
+    return data
+
+
 def _fingerprint(data: dict[str, Any]) -> str:
     """Hash a JSON-safe dict so identical inputs share an identifier
-    regardless of key order or the source file's path/formatting.
+    regardless of key order, numeric sign-of-zero, or the source file's
+    path/formatting.
 
     :param data: A JSON-serializable dict to fingerprint
     :type data: dict
     :return: A SHA-256 hex digest of the dict's canonical JSON encoding
     :rtype: str
     """
-    canonical = json.dumps(data, sort_keys=True, separators=(",", ":"))
+    canonical = json.dumps(
+        _normalize_for_fingerprint(data), sort_keys=True, separators=(",", ":")
+    )
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 

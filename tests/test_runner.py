@@ -198,6 +198,38 @@ def test_execute_run_scenario_fingerprint_changes_with_behavioral_change(config_
         os.unlink(other_path)
 
 
+def test_execute_run_scenario_fingerprint_normalizes_negative_zero(config_path):
+    """-0.0 and 0.0 are behaviorally identical; scenario_fingerprint must
+    not depend on which sign of zero a config happens to use."""
+    negative_zero_config = {
+        **CONFIG_DICT,
+        "agent": {
+            **CONFIG_DICT["agent"],
+            "defaults": {
+                **CONFIG_DICT["agent"]["defaults"],
+                "action_preference": {
+                    **CONFIG_DICT["agent"]["defaults"]["action_preference"],
+                    "IDLE": -0.0,
+                },
+            },
+        },
+    }
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+        yaml.dump(negative_zero_config, f)
+        other_path = f.name
+
+    try:
+        result_a = execute_run(RunRequest(config_path=config_path, steps=1))
+        result_b = execute_run(RunRequest(config_path=other_path, steps=1))
+
+        assert (
+            result_a.metadata.scenario_fingerprint
+            == result_b.metadata.scenario_fingerprint
+        )
+    finally:
+        os.unlink(other_path)
+
+
 def test_execute_run_scenario_fingerprint_same_for_explicit_and_omitted_defaults(
     config_path,
 ):
