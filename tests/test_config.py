@@ -436,6 +436,73 @@ def test_validate_config_invalid_truths():
         validate_config(config_dict)
 
 
+def test_validate_config_rejects_unknown_learning_field():
+    """A typo like learning.ratee (instead of learning.rate) must be
+    rejected -- otherwise it silently has zero effect on the simulation
+    while still polluting resolved_config/the scenario fingerprint."""
+    config_dict = {
+        "world": {
+            "observation": {"private_event_rate": 0.1, "global_event_rate": 0.0},
+            "truths": {0: True},
+            "noise": {"OBSERVE": 0.0, "HEAR": 0.0, "VERIFY": 0.0},
+        },
+        "agent": {
+            "defaults": {"learning": {"ratee": 0.5}},
+            "profiles": [{"name": "default", "count": 1}],
+        },
+    }
+
+    with pytest.raises(
+        ValueError, match="agent.defaults.learning has unknown field\\(s\\): ratee"
+    ):
+        validate_config(config_dict)
+
+
+def test_validate_config_rejects_unknown_top_level_setting():
+    """An unrecognized top-level settings key (e.g. a misspelled section
+    name) is rejected rather than silently ignored."""
+    config_dict = {
+        "world": {
+            "observation": {"private_event_rate": 0.1, "global_event_rate": 0.0},
+            "truths": {0: True},
+            "noise": {"OBSERVE": 0.0, "HEAR": 0.0, "VERIFY": 0.0},
+        },
+        "agent": {
+            "defaults": {"observaton": {"attention": 0.5}},
+            "profiles": [{"name": "default", "count": 1}],
+        },
+    }
+
+    with pytest.raises(
+        ValueError, match="agent.defaults has unknown field\\(s\\): observaton"
+    ):
+        validate_config(config_dict)
+
+
+def test_validate_config_rejects_unknown_setting_on_profile():
+    """Unknown settings keys are also rejected on profile overrides, not
+    just agent.defaults."""
+    config_dict = {
+        "world": {
+            "observation": {"private_event_rate": 0.1, "global_event_rate": 0.0},
+            "truths": {0: True},
+            "noise": {"OBSERVE": 0.0, "HEAR": 0.0, "VERIFY": 0.0},
+        },
+        "agent": {
+            "defaults": {},
+            "profiles": [
+                {"name": "default", "count": 1, "social": {"confidence_boundd": 0.5}}
+            ],
+        },
+    }
+
+    with pytest.raises(
+        ValueError,
+        match="agent.profiles.default.social has unknown field\\(s\\): confidence_boundd",
+    ):
+        validate_config(config_dict)
+
+
 def test_build_world():
     """Test building a World instance from configuration."""
     config_dict = {

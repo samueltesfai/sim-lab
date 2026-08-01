@@ -9,6 +9,23 @@ from simlab.kernel_types import ActionType, MemoryType
 
 VALID_ACTIONS = {"IDLE", "VERIFY", "COMMUNICATE", "BROADCAST"}
 
+_KNOWN_SETTINGS_KEYS = {
+    "observation",
+    "trust",
+    "social",
+    "learning",
+    "action_preference",
+    "action_cost",
+}
+_KNOWN_OBSERVATION_KEYS = {"attention", "bias"}
+_KNOWN_TRUST_KEYS = {"default"}
+_KNOWN_SOCIAL_KEYS = {
+    "confidence_bound",
+    "trust_update_rate",
+    "update_trust_on_rejection",
+}
+_KNOWN_LEARNING_KEYS = {"rate", "observe_weight", "hear_weight", "verify_weight"}
+
 
 def load_config(path: str) -> dict:
     """Load configuration from YAML file."""
@@ -42,8 +59,46 @@ def _validate_action_map(
             raise ValueError(f"{context}.action_{kind}.{action} must be non-negative")
 
 
-def _validate_agent_settings(settings, *, context: str) -> None:
-    """Validate the maps inside an agent settings node (defaults/profile)."""
+def _validate_known_keys(mapping, known: set[str], *, context: str) -> None:
+    """Reject any key not in ``known``.
+
+    An unrecognized key (e.g. a typo like ``learning.ratee``) would otherwise
+    pass through silently: ``_settings_to_agent_kwargs`` never reads it, so it
+    has zero effect on the simulation, but it would still be preserved in
+    ``resolved_config``/the scenario fingerprint as if it were effective.
+
+    :param mapping: The settings node to check
+    :type mapping: dict
+    :param known: The set of recognized keys at this level
+    :type known: set[str]
+    :param context: Human-readable location for error messages
+    :type context: str
+    :raises ValueError: if ``mapping`` contains any key not in ``known``
+    """
+    unknown = set(mapping) - known
+    if unknown:
+        raise ValueError(
+            f"{context} has unknown field(s): {', '.join(sorted(unknown))}"
+        )
+
+
+def _validate_agent_settings(
+    settings, *, context: str, extra_allowed_keys: frozenset[str] = frozenset()
+) -> None:
+    """Validate the maps inside an agent settings node (defaults/profile).
+
+    :param settings: The settings node to validate
+    :type settings: dict
+    :param context: Human-readable location for error messages
+    :type context: str
+    :param extra_allowed_keys: Additional top-level keys allowed alongside
+        the settings schema (e.g. ``name``/``count`` on a profile node)
+    :type extra_allowed_keys: frozenset[str]
+    """
+    _validate_known_keys(
+        settings, _KNOWN_SETTINGS_KEYS | extra_allowed_keys, context=context
+    )
+
     if "action_preference" in settings:
         _validate_action_map(
             settings["action_preference"],
@@ -60,12 +115,19 @@ def _validate_agent_settings(settings, *, context: str) -> None:
         )
 
     observation = settings.get("observation", {})
+    _validate_known_keys(
+        observation, _KNOWN_OBSERVATION_KEYS, context=f"{context}.observation"
+    )
     if "attention" in observation and not 0 <= observation["attention"] <= 1:
         raise ValueError(f"{context}.observation.attention must be in [0, 1]")
     if "bias" in observation and not -1 <= observation["bias"] <= 1:
         raise ValueError(f"{context}.observation.bias must be in [-1, 1]")
 
+    trust = settings.get("trust", {})
+    _validate_known_keys(trust, _KNOWN_TRUST_KEYS, context=f"{context}.trust")
+
     social = settings.get("social", {})
+    _validate_known_keys(social, _KNOWN_SOCIAL_KEYS, context=f"{context}.social")
     if "confidence_bound" in social and not 0 <= social["confidence_bound"] <= 1:
         raise ValueError(f"{context}.social.confidence_bound must be in [0, 1]")
     if "trust_update_rate" in social and not 0 <= social["trust_update_rate"] <= 1:
@@ -74,6 +136,9 @@ def _validate_agent_settings(settings, *, context: str) -> None:
         social["update_trust_on_rejection"], bool
     ):
         raise ValueError(f"{context}.social.update_trust_on_rejection must be boolean")
+
+    learning = settings.get("learning", {})
+    _validate_known_keys(learning, _KNOWN_LEARNING_KEYS, context=f"{context}.learning")
 
 
 def _validate_profile_count(count, name: str) -> None:
@@ -120,7 +185,11 @@ def validate_config(cfg: dict) -> None:
             raise ValueError("each agent profile must define name")
         name = profile["name"]
         _validate_profile_count(profile.get("count"), name)
-        _validate_agent_settings(profile, context=f"agent.profiles.{name}")
+        _validate_agent_settings(
+            profile,
+            context=f"agent.profiles.{name}",
+            extra_allowed_keys=frozenset({"name", "count"}),
+        )
 
     # Truths validation
     for claim_id, truth in cfg["world"]["truths"].items():
