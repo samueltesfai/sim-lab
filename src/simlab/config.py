@@ -140,9 +140,18 @@ def _deep_merge(base: dict, override: dict) -> dict:
 
 
 def _settings_to_agent_kwargs(settings: dict, profile_name: str) -> dict:
-    """Translate a fully-materialized agent settings node into Agent constructor
-    kwargs. ``settings`` must already have every field present (see
+    """Translate a fully-materialized agent settings node into Agent
+    constructor kwargs.
+
+    ``settings`` must already have every field present (see
     ``_materialize_agent_profiles``); nothing here is optional.
+
+    :param settings: Fully-merged agent settings for one profile
+    :type settings: dict
+    :param profile_name: The profile's name, passed through as a kwarg
+    :type profile_name: str
+    :return: Keyword arguments ready to pass to ``Agent()``
+    :rtype: dict
     """
     return {
         "profile_name": profile_name,
@@ -167,12 +176,17 @@ def _settings_to_agent_kwargs(settings: dict, profile_name: str) -> dict:
 
 def _materialize_agent_profiles(cfg: dict) -> list[dict]:
     """Expand ``agent.defaults`` + ``agent.profiles`` into one fully-specified,
-    JSON-safe settings dict per profile (``{"name":, "count":, **settings}``),
-    with every Agent-recognized field present regardless of what the YAML
-    omitted -- omitted fields are filled from ``agent.DEFAULT_SETTINGS``.
+    JSON-safe settings dict per profile.
 
-    This is a pure transformation; callers must ensure ``cfg`` has already
-    passed ``validate_config``.
+    Every Agent-recognized field is present regardless of what the YAML
+    omitted -- omitted fields are filled from ``agent.DEFAULT_SETTINGS``. This
+    is a pure transformation; callers must ensure ``cfg`` has already passed
+    ``validate_config``.
+
+    :param cfg: The loaded, validated configuration
+    :type cfg: dict
+    :return: One ``{"name":, "count":, **settings}`` dict per profile
+    :rtype: list[dict]
     """
     agent_cfg = cfg["agent"]
     base = _deep_merge(DEFAULT_SETTINGS, agent_cfg["defaults"])
@@ -193,9 +207,13 @@ def expand_agent_specs(cfg: dict) -> list[dict]:
 
     Each profile inherits ``agent.defaults`` and may override any subset of
     settings. The total number of agents is the sum of the profile counts.
-
     This is a pure transformation; callers must ensure ``cfg`` has already
     passed ``validate_config``.
+
+    :param cfg: The loaded, validated configuration
+    :type cfg: dict
+    :return: One Agent constructor kwargs dict per agent
+    :rtype: list[dict]
     """
     specs: list[dict] = []
     for profile in _materialize_agent_profiles(cfg):
@@ -214,6 +232,11 @@ def _materialize_world_settings(cfg: dict) -> dict:
 
     This is a pure transformation; callers must ensure ``cfg`` has already
     passed ``validate_config``.
+
+    :param cfg: The loaded, validated configuration
+    :type cfg: dict
+    :return: The fully-materialized ``world`` section
+    :rtype: dict
     """
     world_cfg = cfg["world"]
     return {
@@ -234,6 +257,11 @@ def materialize_config(cfg: dict) -> dict:
     Suitable for hashing or storing as a reproducibility record: two configs
     that build identical simulations always materialize to the same result,
     regardless of which defaulted fields either one happened to spell out.
+
+    :param cfg: The loaded, validated configuration
+    :type cfg: dict
+    :return: The fully effective configuration, keyed like the source YAML
+    :rtype: dict
     """
     return {
         "world": _materialize_world_settings(cfg),
@@ -250,6 +278,11 @@ def materialize_scenario(cfg: dict) -> dict:
     here: this is what a scenario fingerprint should be hashed from, as
     opposed to ``materialize_config`` (which keeps the seed, for humans
     inspecting a single run's resolved config).
+
+    :param cfg: The loaded, validated configuration
+    :type cfg: dict
+    :return: The effective configuration with ``world.rng_seed`` removed
+    :rtype: dict
     """
     full = materialize_config(cfg)
     world = {k: v for k, v in full["world"].items() if k != "rng_seed"}

@@ -29,6 +29,10 @@ def _validate_run_id(run_id: str) -> None:
     ``run_id`` becomes a directory name under ``output_dir``; without this
     check a value like ``"../../etc"`` would place the run (and, with
     ``overwrite=True``, an rmtree) outside ``output_dir``.
+
+    :param run_id: The run id to validate
+    :type run_id: str
+    :raises ValueError: if ``run_id`` is empty or not a single path component
     """
     if not run_id or run_id in (".", "..") or os.path.basename(run_id) != run_id:
         raise ValueError(
@@ -94,9 +98,16 @@ def write_run_artifacts(
     run_id can still raise, since "overwrite" only promises to replace
     whatever was there when this call started, not to out-wait a rival.
 
+    :param result: The completed run to write artifacts for
+    :type result: RunResult
+    :param output_dir: Directory to write the run's artifact folder under
+    :type output_dir: str
+    :param overwrite: Replace an existing run directory with the same run id
+    :type overwrite: bool
     :raises FileExistsError: if the run directory already exists and
         `overwrite` is False.
     :return: the final run directory path.
+    :rtype: str
     """
     run_id = result.metadata.run_id
     _validate_run_id(run_id)

@@ -61,7 +61,13 @@ class RunResult:
 
 def _fingerprint(data: dict[str, Any]) -> str:
     """Hash a JSON-safe dict so identical inputs share an identifier
-    regardless of key order or the source file's path/formatting."""
+    regardless of key order or the source file's path/formatting.
+
+    :param data: A JSON-serializable dict to fingerprint
+    :type data: dict
+    :return: A SHA-256 hex digest of the dict's canonical JSON encoding
+    :rtype: str
+    """
     canonical = json.dumps(data, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
@@ -81,6 +87,11 @@ def execute_run(request: RunRequest) -> RunResult:
     -- scenario features describing the conditions the run started under,
     and a run summary aggregating the full trajectory into initial/final
     state, activity totals, and a conservative set of outcome labels.
+
+    :param request: The config path, step count, and optional run id
+    :type request: RunRequest
+    :return: Metadata, scenario features, run summary, and full telemetry
+    :rtype: RunResult
     """
     cfg = load_config(request.config_path)
     world = build_world(cfg)
