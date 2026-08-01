@@ -1,5 +1,19 @@
 # Configuration Reference
 
+## Table of Contents
+
+- [Overview](#overview)
+- [Parameter Index](#parameter-index)
+  - [`world`](#world)
+  - [`agent`](#agent)
+- [Minimal Config](#minimal-config)
+- [Validation Rules](#validation-rules)
+- [Examples](#examples)
+  - [Homogeneous Population](#homogeneous-population)
+  - [Heterogeneous Population](#heterogeneous-population)
+
+## Overview
+
 Simulation scenarios are defined as YAML files and loaded through `simlab.config`.
 
 A config describes two things:
@@ -28,73 +42,37 @@ cfg = load_config("configs/heterogeneous.yaml")
 world = build_world(cfg)
 ```
 
-For the conceptual meaning of these parameters (what observation, trust,
-learning, etc. actually *do*), see [`docs/model.md`](model.md). This document is
-the schema/reference for writing a scenario.
+For how these parameters interact within a simulation tick (belief updates,
+trust dynamics, the observation/verification/hear channels), see
+[`docs/model.md`](model.md). This document defines each parameter
+individually — its type, range, and default — for writing a scenario.
 
-## Table of Contents
+## Parameter Index
 
-- [Configuration Reference](#configuration-reference)
-  - [Minimal Config](#minimal-config)
-  - [Top-Level Schema](#top-level-schema)
-  - [`world`](#world)
-    - [`world.rng_seed`](#worldrng_seed)
-    - [`world.truths`](#worldtruths)
-    - [`world.noise`](#worldnoise)
-    - [`world.observation`](#worldobservation)
-      - [`private_event_rate`](#private_event_rate)
-      - [`global_event_rate`](#global_event_rate)
-  - [`agent`](#agent)
-    - [`agent.defaults`](#agentdefaults)
-      - [`observation.attention`](#observationattention)
-      - [`observation.bias`](#observationbias)
-      - [`trust.default`](#trustdefault)
-      - [`social.confidence_bound`](#socialconfidence_bound)
-      - [`social.trust_update_rate`](#socialtrust_update_rate)
-      - [`social.update_trust_on_rejection`](#socialupdate_trust_on_rejection)
-      - [`learning.rate`](#learningrate)
-      - [`learning.observe_weight`](#learningobserve_weight)
-      - [`learning.hear_weight`](#learninghear_weight)
-      - [`learning.verify_weight`](#learningverify_weight)
-      - [`action_preference`](#action_preference)
-      - [`action_cost`](#action_cost)
-    - [`agent.profiles`](#agentprofiles)
-      - [`name`](#name)
-      - [`count`](#count)
-      - [profile overrides and deep-merge](#profile-overrides-and-deep-merge)
-  - [Validation Rules](#validation-rules)
-  - [Example: Homogeneous Population](#example-homogeneous-population)
-  - [Example: Heterogeneous Population](#example-heterogeneous-population)
-
-## Minimal Config
-
-The smallest valid scenario: one true claim, no observation noise, and a single
-homogeneous profile.
-
-```yaml
-world:
-  rng_seed: 0
-  observation:
-    private_event_rate: 0.1
-    global_event_rate: 0.0
-  truths:
-    0: true
-  noise:
-    OBSERVE: 0.0
-    HEAR: 0.0
-    VERIFY: 0.0
-
-agent:
-  defaults: {}
-  profiles:
-    - name: default
-      count: 10
-```
-
-Any agent parameter omitted from `agent.defaults` falls back to the built-in
-`Agent` defaults documented under [`agent.defaults`](#agentdefaults).
-
-## Top-Level Schema
+- [`world`](#world)
+  - [`world.rng_seed`](#worldrng_seed)
+  - [`world.truths`](#worldtruths)
+  - [`world.noise`](#worldnoise)
+  - [`world.observation`](#worldobservation)
+    - [`private_event_rate`](#private_event_rate)
+    - [`global_event_rate`](#global_event_rate)
+- [`agent`](#agent)
+  - [`agent.defaults`](#agentdefaults)
+    - [`observation.attention`](#observationattention)
+    - [`observation.bias`](#observationbias)
+    - [`trust.default`](#trustdefault)
+    - [`social.confidence_bound`](#socialconfidence_bound)
+    - [`social.trust_update_rate`](#socialtrust_update_rate)
+    - [`social.update_trust_on_rejection`](#socialupdate_trust_on_rejection)
+    - [`learning.rate`](#learningrate)
+    - [`learning.observe_weight`](#learningobserve_weight)
+    - [`learning.hear_weight`](#learninghear_weight)
+    - [`learning.verify_weight`](#learningverify_weight)
+    - [`action_preference`](#action_preference)
+    - [`action_cost`](#action_cost)
+  - [`agent.profiles`](#agentprofiles)
+    - [`name`](#name)
+    - [`count`](#count)
 
 ```yaml
 world:
@@ -114,6 +92,9 @@ agent:
 ```
 
 All of `world`, `agent.defaults`, and `agent.profiles` are required.
+
+<details>
+<summary>Click to expand the full parameter reference</summary>
 
 ## `world`
 
@@ -319,6 +300,36 @@ settings (`observation`, `trust`, `social`, `learning`, `action_preference`,
 
 The homogeneous case is simply a single profile that adds no overrides.
 
+</details>
+
+## Minimal Config
+
+The smallest valid scenario: one true claim, no observation noise, and a single
+homogeneous profile.
+
+```yaml
+world:
+  rng_seed: 0
+  observation:
+    private_event_rate: 0.1
+    global_event_rate: 0.0
+  truths:
+    0: true
+  noise:
+    OBSERVE: 0.0
+    HEAR: 0.0
+    VERIFY: 0.0
+
+agent:
+  defaults: {}
+  profiles:
+    - name: default
+      count: 10
+```
+
+Any agent parameter omitted from `agent.defaults` falls back to the built-in
+`Agent` defaults documented under [`agent.defaults`](#agentdefaults).
+
 ## Validation Rules
 
 `validate_config` enforces the following. A violation raises `ValueError`.
@@ -344,7 +355,9 @@ The homogeneous case is simply a single profile that adds no overrides.
 `observation`, `social`, `action_preference`, and `action_cost` rules apply to
 both `agent.defaults` and every profile node.
 
-## Example: Homogeneous Population
+## Examples 
+
+### Homogeneous Population
 
 A single profile of 50 identical agents, overriding only action parameters:
 
@@ -378,7 +391,7 @@ agent:
       count: 50
 ```
 
-## Example: Heterogeneous Population
+### Heterogeneous Population
 
 Three subpopulations sharing common defaults, each overriding a different slice
 of cognition. A non-zero `global_event_rate` adds occasional shared incidents.
