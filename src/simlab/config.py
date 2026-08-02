@@ -48,6 +48,27 @@ def _deep_merge(base: dict, override: dict) -> dict:
     return merged
 
 
+# Maps each flat Agent constructor kwarg to the nested (section, field) path
+# it reads from a materialized settings dict. Declarative on purpose: a test
+# (test_settings_to_agent_kwargs_completeness in tests/test_config.py) walks
+# config_schema.AgentSettings and asserts every scalar leaf field appears
+# here as a value -- otherwise a newly added settings field would validate,
+# materialize, and hash into fingerprints fine, but silently never reach
+# Agent, since nothing else would catch a missing translation.
+_SCALAR_KWARG_PATHS: dict[str, tuple[str, str]] = {
+    "observation_attention": ("observation", "attention"),
+    "observation_bias": ("observation", "bias"),
+    "default_trust": ("trust", "default"),
+    "learning_rate": ("learning", "rate"),
+    "observe_weight": ("learning", "observe_weight"),
+    "hear_weight": ("learning", "hear_weight"),
+    "verify_weight": ("learning", "verify_weight"),
+    "social_confidence_bound": ("social", "confidence_bound"),
+    "social_trust_update_rate": ("social", "trust_update_rate"),
+    "social_update_trust_on_rejection": ("social", "update_trust_on_rejection"),
+}
+
+
 def _settings_to_agent_kwargs(settings: dict, profile_name: str) -> dict:
     """Translate a fully-materialized agent settings node into Agent
     constructor kwargs.
@@ -62,25 +83,16 @@ def _settings_to_agent_kwargs(settings: dict, profile_name: str) -> dict:
     :return: Keyword arguments ready to pass to ``Agent()``
     :rtype: dict
     """
-    return {
+    kwargs: dict = {
         "profile_name": profile_name,
         "action_preference": {
             ActionType[k]: v for k, v in settings["action_preference"].items()
         },
         "action_cost": {ActionType[k]: v for k, v in settings["action_cost"].items()},
-        "observation_attention": settings["observation"]["attention"],
-        "observation_bias": settings["observation"]["bias"],
-        "default_trust": settings["trust"]["default"],
-        "learning_rate": settings["learning"]["rate"],
-        "observe_weight": settings["learning"]["observe_weight"],
-        "hear_weight": settings["learning"]["hear_weight"],
-        "verify_weight": settings["learning"]["verify_weight"],
-        "social_confidence_bound": settings["social"]["confidence_bound"],
-        "social_trust_update_rate": settings["social"]["trust_update_rate"],
-        "social_update_trust_on_rejection": settings["social"][
-            "update_trust_on_rejection"
-        ],
     }
+    for kwarg_name, (section, field) in _SCALAR_KWARG_PATHS.items():
+        kwargs[kwarg_name] = settings[section][field]
+    return kwargs
 
 
 def _materialize_agent_profiles(cfg: dict) -> list[dict]:

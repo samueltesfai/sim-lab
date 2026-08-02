@@ -1,14 +1,21 @@
+import inspect
+import typing
+
 import pytest
 import tempfile
 import os
 import yaml
+from pydantic import BaseModel
 
+from simlab.agent import Agent
 from simlab.config import (
+    _SCALAR_KWARG_PATHS,
     load_config,
     validate_config,
     expand_agent_specs,
     build_world,
 )
+from simlab.config_schema import AgentSettings
 from simlab.kernel_types import ActionType, MemoryType, Snapshot
 from simlab.world import World
 
@@ -926,6 +933,44 @@ def test_expand_agent_specs_single_profile():
     assert len(specs) == 3
     assert all(spec["profile_name"] == "default" for spec in specs)
     assert all(ActionType.VERIFY in spec["action_preference"] for spec in specs)
+
+
+def _unwrap_annotation(annotation: object) -> object:
+    """Unwrap Annotated[float, Strict(...)] -> float; a plain type like
+    ``int`` (no args) passes through unchanged."""
+    args = typing.get_args(annotation)
+    return args[0] if args and isinstance(args[0], type) else annotation
+
+
+def _agent_settings_scalar_leaf_paths(
+    model_cls: type[BaseModel], prefix: tuple[str, ...] = ()
+) -> set[tuple[str, ...]]:
+    """Every scalar (non-dict, non-nested-model) leaf field path in
+    ``model_cls``. Dict-typed fields (action_preference/action_cost) are
+    excluded -- they're passed through _settings_to_agent_kwargs whole,
+    not translated field-by-field."""
+    paths: set[tuple[str, ...]] = set()
+    for name, field in model_cls.model_fields.items():
+        base = _unwrap_annotation(field.annotation)
+        if isinstance(base, type) and issubclass(base, BaseModel):
+            paths |= _agent_settings_scalar_leaf_paths(base, prefix + (name,))
+        elif typing.get_origin(field.annotation) is dict:
+            continue
+        else:
+            paths.add(prefix + (name,))
+    return paths
+
+
+def test_settings_to_agent_kwargs_completeness():
+    """Every scalar field in AgentSettings must have an entry in
+    _SCALAR_KWARG_PATHS mapping it to an Agent constructor kwarg -- a field
+    present in the schema but missing here would validate, materialize, and
+    hash into fingerprints fine, but silently never reach Agent."""
+    expected_paths = _agent_settings_scalar_leaf_paths(AgentSettings)
+    assert set(_SCALAR_KWARG_PATHS.values()) == expected_paths
+
+    agent_params = set(inspect.signature(Agent.__init__).parameters)
+    assert set(_SCALAR_KWARG_PATHS.keys()) <= agent_params
 
 
 def test_validate_config_rejects_non_integral_count():
