@@ -11,19 +11,19 @@ from simlab.config import (
     _settings_to_agent_kwargs,
     _settings_to_world_kwargs,
     load_config,
+    parse_config,
     validate_config,
     expand_agent_specs,
     world_from_config,
 )
-from simlab.config_schema import AgentSettings
+from simlab.config_schema import AgentSettings, SimConfig
 from simlab.kernel_types import ActionType, MemoryType, Snapshot
 from simlab.world import World
 
 
 def _build_valid_world(config_dict: dict) -> World:
-    """Build a World from a config dict after validating it."""
-    validate_config(config_dict)
-    return world_from_config(config_dict)
+    """Build a World from a config dict, validating it in the process."""
+    return world_from_config(parse_config(config_dict))
 
 
 def create_test_config_file(config_dict: dict) -> str:
@@ -65,15 +65,15 @@ def test_load_config_success():
 
     try:
         cfg = load_config(config_path)
-        # load_config returns a plain dict
-        assert isinstance(cfg, dict)
+        # load_config returns a resolved, validated SimConfig
+        assert isinstance(cfg, SimConfig)
 
-        assert cfg["agent"]["profiles"][0]["count"] == 5
-        assert cfg["world"]["rng_seed"] == 42
-        assert cfg["world"]["observation"]["private_event_rate"] == 0.1
-        assert cfg["world"]["truths"] == {0: True, 1: False}
-        assert cfg["agent"]["defaults"]["action_preference"]["IDLE"] == 0.0
-        assert cfg["agent"]["defaults"]["action_preference"]["VERIFY"] == 0.9
+        assert cfg.agent.profiles[0].count == 5
+        assert cfg.world.rng_seed == 42
+        assert cfg.world.observation.private_event_rate == 0.1
+        assert cfg.world.truths == {0: True, 1: False}
+        assert cfg.agent.profiles[0].action_preference["IDLE"] == 0.0
+        assert cfg.agent.profiles[0].action_preference["VERIFY"] == 0.9
     finally:
         os.unlink(config_path)
 
@@ -822,8 +822,7 @@ def test_validate_config_rejects_bool_for_agent_attention():
 
 def test_single_default_profile_builds():
     """A single 'default' profile builds the requested number of agents."""
-    cfg = _config([{"name": "default", "count": 4}])
-    validate_config(cfg)
+    cfg = parse_config(_config([{"name": "default", "count": 4}]))
     world = world_from_config(cfg)
 
     assert len(world.agents) == 4
@@ -886,8 +885,9 @@ def test_profiles_expand_counts_and_params():
 
 def test_profile_counts_determine_total_agents():
     """Total agents is the sum of profile counts; no separate world total."""
-    cfg = _config([{"name": "a", "count": 20}, {"name": "b", "count": 29}])
-    validate_config(cfg)
+    cfg = parse_config(
+        _config([{"name": "a", "count": 20}, {"name": "b", "count": 29}])
+    )
     world = world_from_config(cfg)
     assert len(world.agents) == 49
     assert world.profile_counts == {"a": 20, "b": 29}
@@ -929,7 +929,7 @@ def test_profile_missing_count_raises():
 
 def test_expand_agent_specs_single_profile():
     """expand_agent_specs returns one spec per agent for a single default profile."""
-    cfg = _config([{"name": "default", "count": 3}])
+    cfg = parse_config(_config([{"name": "default", "count": 3}]))
     specs = expand_agent_specs(cfg)
 
     assert len(specs) == 3
@@ -1128,8 +1128,7 @@ def test_social_params_profile_overrides_defaults():
 
 def test_social_params_absent_uses_agent_defaults():
     """When social section is omitted, Agent defaults (1.0 / 0.0 / True) apply."""
-    cfg = _config([{"name": "default", "count": 2}])
-    validate_config(cfg)
+    cfg = parse_config(_config([{"name": "default", "count": 2}]))
     world = world_from_config(cfg)
 
     for agent in world.agents:

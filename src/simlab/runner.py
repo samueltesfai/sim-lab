@@ -11,8 +11,6 @@ from typing import Any
 from simlab.config import (
     world_from_config,
     load_config,
-    materialize_config,
-    materialize_scenario,
 )
 from simlab.run_analysis import (
     RunSummary,
@@ -136,9 +134,9 @@ def execute_run(request: RunRequest) -> RunResult:
     """
     cfg = load_config(request.config_path)
     world = world_from_config(cfg)
-    resolved_config: dict[str, Any] = materialize_config(cfg)
-    scenario_fingerprint = _fingerprint(materialize_scenario(cfg))
-    world_seed = cfg["world"]["rng_seed"]
+    resolved_config: dict[str, Any] = cfg.model_dump()
+    scenario_fingerprint = _fingerprint(cfg.model_dump(exclude={"world": {"rng_seed"}}))
+    world_seed = cfg.world.rng_seed
     run_spec_fingerprint = _fingerprint(
         {
             "scenario_fingerprint": scenario_fingerprint,
@@ -149,7 +147,7 @@ def execute_run(request: RunRequest) -> RunResult:
 
     telemetry = Telemetry()
     initial_row = telemetry.record_initial(world)
-    scenario = extract_scenario_features(world, initial_row, resolved_config)
+    scenario = extract_scenario_features(world, initial_row, cfg)
 
     run_start = perf_counter()
 

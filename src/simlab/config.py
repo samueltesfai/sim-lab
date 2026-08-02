@@ -10,15 +10,22 @@ from simlab.world import DEFAULT_NOISE, World
 from simlab.kernel_types import ActionType, MemoryType
 
 
-def load_config(path: str) -> dict:
-    """Load configuration from YAML file."""
+def load_config(path: str) -> SimConfig:
+    """Load, merge, and validate configuration from a YAML file.
+
+    :param path: Path to the YAML config file
+    :type path: str
+    :return: The resolved, validated config
+    :rtype: SimConfig
+    :raises FileNotFoundError: if ``path`` doesn't exist
+    :raises ValueError: if the config doesn't match the expected schema
+    """
     if not os.path.exists(path):
         raise FileNotFoundError(f"Config file not found: {path}")
 
     with open(path, encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
-    validate_config(cfg)
-    return cfg
+    return parse_config(cfg)
 
 
 def _check_structure(cfg: dict) -> None:
@@ -69,11 +76,11 @@ def _check_structure(cfg: dict) -> None:
             raise ValueError("each agent profile must define name and count")
 
 
-def validate_config(cfg: dict) -> None:
-    """Validate configuration structure, types, and ranges.
+def parse_config(cfg: dict) -> SimConfig:
+    """Merge defaults into ``cfg`` and validate the result.
 
     First checks ``cfg`` has the container shapes needed to merge safely
-    (``_check_structure``), then merges defaults in (``materialize_config``)
+    (``_check_structure``), then merges defaults in (``_materialize_config``)
     and validates the *merged* result against ``config_schema.SimConfig``.
     Validating after merging, rather than before, means every value --
     whether it came from user YAML or from a built-in default -- is
@@ -81,21 +88,32 @@ def validate_config(cfg: dict) -> None:
     built-in default can't slip through unnoticed the way it could if
     validation ran on the raw, possibly-partial config.
 
-    The validated model is discarded; everything downstream keeps consuming
-    the original plain ``cfg`` dict (and re-merges it) unchanged. Re-running
-    the merge is cheap (a handful of small dict operations); it's the
-    redundant work worth accepting here, unlike re-running full validation
-    for no correctness benefit.
+    The returned, fully-resolved ``SimConfig`` is what the rest of the
+    pipeline (``world_from_config``, ``expand_agent_specs``, callers'
+    fingerprinting/reporting) should use from here on -- none of it needs to
+    re-derive resolved settings from the raw ``cfg`` dict again.
+
+    :param cfg: The loaded configuration
+    :type cfg: dict
+    :return: The resolved, validated config
+    :rtype: SimConfig
+    :raises ValueError: if ``cfg`` doesn't match the expected schema
+    """
+    _check_structure(cfg)
+    try:
+        return SimConfig.model_validate(_materialize_config(cfg))
+    except ValidationError as e:
+        raise ValueError(str(e)) from e
+
+
+def validate_config(cfg: dict) -> None:
+    """Validate configuration structure, types, and ranges.
 
     :param cfg: The loaded configuration
     :type cfg: dict
     :raises ValueError: if ``cfg`` doesn't match the expected schema
     """
-    _check_structure(cfg)
-    try:
-        SimConfig.model_validate(materialize_config(cfg))
-    except ValidationError as e:
-        raise ValueError(str(e)) from e
+    parse_config(cfg)
 
 
 def _deep_merge(base: dict, override: dict) -> dict:
@@ -210,26 +228,24 @@ def _materialize_agent_profiles(cfg: dict) -> list[dict]:
     return profiles
 
 
-def expand_agent_specs(cfg: dict) -> list[dict]:
-    """Expand ``agent.defaults`` + ``agent.profiles`` into one Agent spec per agent.
+def expand_agent_specs(cfg: SimConfig) -> list[dict]:
+    """Expand ``cfg.agent.profiles`` into one Agent spec per agent.
 
-    Each profile inherits ``agent.defaults`` and may override any subset of
-    settings. The total number of agents is the sum of the profile counts.
-    This is a pure transformation; callers must ensure ``cfg`` has already
-    passed ``validate_config``.
+    ``cfg.agent.profiles`` is already fully resolved (``parse_config``
+    merged defaults in and validated the result), so this only needs to
+    translate each profile's settings into ``Agent`` constructor kwargs and
+    replicate them ``count`` times -- no re-merging.
 
-    :param cfg: The loaded, validated configuration
-    :type cfg: dict
+    :param cfg: The resolved, validated config
+    :type cfg: SimConfig
     :return: One Agent constructor kwargs dict per agent
     :rtype: list[dict]
     """
     specs: list[dict] = []
-    for profile in _materialize_agent_profiles(cfg):
-        name = profile["name"]
-        count = profile["count"]
-        settings = {k: v for k, v in profile.items() if k not in {"name", "count"}}
-        kwargs = _settings_to_agent_kwargs(settings, name)
-        specs.extend(dict(kwargs) for _ in range(count))
+    for profile in cfg.agent.profiles:
+        settings = profile.model_dump(exclude={"name", "count"})
+        kwargs = _settings_to_agent_kwargs(settings, profile.name)
+        specs.extend(dict(kwargs) for _ in range(profile.count))
 
     return specs
 
@@ -296,15 +312,17 @@ def _settings_to_world_kwargs(world_settings: dict) -> dict:
     return kwargs
 
 
-def materialize_config(cfg: dict) -> dict:
+def _materialize_config(cfg: dict) -> dict:
     """Return the fully effective configuration -- every field explicit, no
     field silently defaulted downstream by Agent/World construction.
 
-    Suitable for hashing or storing as a reproducibility record: two configs
-    that build identical simulations always materialize to the same result,
-    regardless of which defaulted fields either one happened to spell out.
+    Internal: the dict shape ``SimConfig.model_validate`` consumes inside
+    ``parse_config``. Nothing outside this module needs it -- once a caller
+    holds a ``SimConfig``, ``.model_dump()``/``.model_dump(exclude=...)``
+    covers the same need (a reproducibility record to hash or store) without
+    re-deriving it from the raw ``cfg`` dict.
 
-    :param cfg: The loaded, validated configuration
+    :param cfg: The loaded configuration
     :type cfg: dict
     :return: The fully effective configuration, keyed like the source YAML
     :rtype: dict
@@ -315,30 +333,16 @@ def materialize_config(cfg: dict) -> dict:
     }
 
 
-def materialize_scenario(cfg: dict) -> dict:
-    """Return the behaviorally meaningful configuration -- the fully
-    effective config minus ``world.rng_seed``.
+def world_from_config(cfg: SimConfig) -> World:
+    """Build a World instance from a resolved, validated configuration.
 
-    Two runs with different seeds are stochastic replicates of the same
-    scenario, not different scenarios, so the seed is deliberately excluded
-    here: this is what a scenario fingerprint should be hashed from, as
-    opposed to ``materialize_config`` (which keeps the seed, for humans
-    inspecting a single run's resolved config).
-
-    :param cfg: The loaded, validated configuration
-    :type cfg: dict
-    :return: The effective configuration with ``world.rng_seed`` removed
-    :rtype: dict
+    :param cfg: The resolved, validated config (see ``load_config``/
+        ``parse_config``)
+    :type cfg: SimConfig
+    :return: The constructed world, with its agents
+    :rtype: World
     """
-    full = materialize_config(cfg)
-    world = {k: v for k, v in full["world"].items() if k != "rng_seed"}
-    return {"world": world, "agent": full["agent"]}
-
-
-def world_from_config(cfg: dict) -> World:
-    """Build a World instance from a validated configuration."""
-    world_settings = _materialize_world_settings(cfg)
-    world_kwargs = _settings_to_world_kwargs(world_settings)
+    world_kwargs = _settings_to_world_kwargs(cfg.world.model_dump())
 
     # Expand agent.defaults + agent.profiles into concrete agents.
     specs = expand_agent_specs(cfg)
@@ -347,7 +351,7 @@ def world_from_config(cfg: dict) -> World:
     for i, spec in enumerate(specs):
         agent = Agent(
             id=i,
-            rng_seed=world_settings["rng_seed"]
+            rng_seed=cfg.world.rng_seed
             + i
             + 1,  # add i to differ seed, and 1 to offset from world rng
             **spec,

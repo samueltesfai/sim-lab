@@ -74,7 +74,7 @@ def main() -> None:
     claim_id = (
         args.claim_id
         if args.claim_id is not None
-        else next(iter(cfg["world"]["truths"].keys()))
+        else next(iter(cfg.world.truths.keys()))
     )
 
     # Create telemetry object

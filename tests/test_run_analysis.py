@@ -1,7 +1,11 @@
 import pytest
 
-from simlab.config import world_from_config, materialize_config
+from simlab.config import parse_config, world_from_config
+from simlab.config_schema import SimConfig
 from simlab.run_analysis import (
+    _agent_parameter_features,
+    _graph_features,
+    _profile_features,
     compute_run_summary,
     extract_scenario_features,
     find_convergence_tick,
@@ -14,14 +18,14 @@ _DEFAULT_TRUTHS = {0: True, 1: False}
 
 def _build_scenario(
     profiles: list[dict], *, truths: dict | None = None
-) -> tuple[World, dict]:
-    """Build a World plus its materialized config from a list of profile
-    dicts (``{"name":, "count":, **settings_overrides}``), exercising the
-    same config -> build_world / materialize_config pipeline that
+) -> tuple[World, SimConfig]:
+    """Build a World plus its resolved config from a list of profile dicts
+    (``{"name":, "count":, **settings_overrides}``), exercising the same
+    config -> parse_config -> world_from_config pipeline that
     extract_scenario_features's ``resolved_config`` argument comes from in
     production.
     """
-    cfg = {
+    cfg_dict = {
         "world": {
             "rng_seed": 1,
             "truths": truths or _DEFAULT_TRUTHS,
@@ -30,7 +34,8 @@ def _build_scenario(
         },
         "agent": {"defaults": {}, "profiles": profiles},
     }
-    return world_from_config(cfg), materialize_config(cfg)
+    cfg = parse_config(cfg_dict)
+    return world_from_config(cfg), cfg
 
 
 # ---------------------------------------------------------------------------
@@ -223,17 +228,31 @@ def test_extract_scenario_features_initial_state_matches_telemetry_row():
     assert features["initial.mean_trust"] == initial_row.mean_trust
 
 
-def test_extract_scenario_features_no_agents_does_not_crash():
-    world, resolved_config = _build_scenario([])
-    telemetry = Telemetry()
-    initial_row = telemetry.record_initial(world)
+def test_graph_features_no_agents_does_not_crash():
+    """A World with no agents is still directly constructible (unlike a
+    SimConfig with no profiles, which the schema disallows -- agent.profiles
+    has always required at least one entry)."""
+    world = World(agents=[], truths={0: True}, rng_seed=1)
 
-    features = extract_scenario_features(world, initial_row, resolved_config)
+    features = _graph_features(world)
 
-    assert features["num_agents"] == 0
     assert features["graph.num_nodes"] == 0
     assert features["graph.edge_density"] == 0.0
     assert features["graph.fraction_isolated"] == 0.0
+
+
+def test_agent_parameter_features_empty_profiles_does_not_crash():
+    """The population-wide aggregation helpers must not divide by zero when
+    given no profiles -- unreachable via a real config (agent.profiles is
+    always non-empty), but a defensive property of the aggregation math
+    worth guarding directly."""
+    assert _profile_features([]) == {}
+
+    features = _agent_parameter_features([])
+
+    assert features["agent_attention_mean"] == 0.0
+    assert features["agent_attention_std"] == 0.0
+    assert features["agent_update_trust_on_rejection_fraction"] == 0.0
 
 
 # ---------------------------------------------------------------------------

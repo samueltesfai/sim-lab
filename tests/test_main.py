@@ -4,6 +4,7 @@ import os
 import yaml
 from unittest.mock import patch
 
+from simlab.config import parse_config
 from simlab.main import main
 
 
@@ -173,7 +174,7 @@ def test_main_handles_run_viz_exceptions(mock_load_config, mock_run_viz):
             "profiles": [{"name": "default", "count": 1}],
         },
     }
-    mock_load_config.return_value = mock_cfg
+    mock_load_config.return_value = parse_config(mock_cfg)
 
     # Test that exceptions from run_viz are propagated
     mock_run_viz.side_effect = RuntimeError("Visualization error")

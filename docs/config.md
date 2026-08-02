@@ -29,15 +29,18 @@ Overrides are **deep-merged** onto the defaults, not substituted wholesale:
 
 The homogeneous case is simply a single profile that adds no overrides.
 
-Configs are loaded with `load_config(path)`, which parses the YAML and runs
-`validate_config`. `build_world(cfg)` then expands `agent.defaults` +
-`agent.profiles` into concrete `Agent` instances and constructs the `World`.
+Configs are loaded with `load_config(path)`, which parses the YAML, merges
+defaults in, and validates the result, returning a resolved `SimConfig`
+object (not a plain dict) -- every field already fully explicit, no field
+silently defaulted downstream. `world_from_config(cfg)` then expands
+`cfg.agent.profiles` into concrete `Agent` instances and constructs the
+`World`.
 
 ```python
-from simlab.config import load_config, build_world
+from simlab.config import load_config, world_from_config
 
 cfg = load_config("configs/heterogeneous.yaml")
-world = build_world(cfg)
+world = world_from_config(cfg)
 ```
 
 For how these parameters interact within a simulation tick (belief updates,
