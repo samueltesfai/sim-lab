@@ -1009,6 +1009,30 @@ def test_profile_missing_count_raises():
         validate_config(config_dict)
 
 
+def test_defaults_with_count_raises():
+    """agent.defaults.count must be rejected, not silently overwrite every
+    profile's own explicit count. Reproduced directly before this check
+    existed: {"count": 100} in defaults turned a profile declared with
+    count: 1 into 100 agents -- the **merged dict-literal splat in
+    _materialize_agent_profiles evaluates {"count": count, **merged} where
+    merged (built from a base that already absorbed defaults' stray "count"
+    key) overwrites the profile's own count with no error."""
+    cfg = _config([{"name": "default", "count": 1}])
+    cfg["agent"]["defaults"]["count"] = 100
+
+    with pytest.raises(ValueError, match=r"agent\.defaults.*not contain"):
+        validate_config(cfg)
+
+
+def test_defaults_with_name_raises():
+    """Same guard, for agent.defaults.name."""
+    cfg = _config([{"name": "default", "count": 1}])
+    cfg["agent"]["defaults"]["name"] = "oops"
+
+    with pytest.raises(ValueError, match=r"agent\.defaults.*not contain"):
+        validate_config(cfg)
+
+
 def test_expand_agent_specs_single_profile():
     """expand_agent_specs returns one resolved AgentProfile per agent for a
     single default profile."""

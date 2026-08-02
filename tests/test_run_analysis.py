@@ -512,6 +512,7 @@ def test_compute_run_summary_false_consensus_when_stable_but_wrong():
             mean_abs_delta=0.0005,
             mean_claim_belief_variance=0.001,
             fraction_truth_aligned=0.0,
+            fraction_confident_wrong=1.0,
         )
         for t in range(25)
     ]
@@ -521,6 +522,31 @@ def test_compute_run_summary_false_consensus_when_stable_but_wrong():
     assert summary.final_consensus is True
     assert summary.final_truth_aligned is False
     assert summary.final_false_consensus is True
+
+
+def test_compute_run_summary_no_false_consensus_when_converged_but_uncertain():
+    """Agents converging near 0.5 (mutual agreement that they don't know)
+    have low belief variance (consensus) and low truth alignment, but no
+    fraction_confident_wrong -- not a false consensus, just genuine
+    uncertainty. `not final_truth_aligned` alone can't distinguish this from
+    a confidently-held wrong belief; fraction_confident_wrong can."""
+    initial = _row(-1)
+    steps = [
+        _row(
+            t,
+            mean_abs_delta=0.0005,
+            mean_claim_belief_variance=0.001,
+            fraction_truth_aligned=0.0,
+            fraction_confident_wrong=0.0,
+        )
+        for t in range(25)
+    ]
+
+    summary = compute_run_summary([initial, *steps], total_runtime_ms=0.0)
+
+    assert summary.final_consensus is True
+    assert summary.final_truth_aligned is False
+    assert summary.final_false_consensus is False
 
 
 def test_compute_run_summary_no_consensus_when_disagreement_high():

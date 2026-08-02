@@ -94,6 +94,16 @@ def _check_structure(cfg: dict) -> None:
         raise ValueError("agent.defaults and agent.profiles are required")
     if not isinstance(agent["defaults"], dict):
         raise ValueError("agent.defaults must be a mapping")
+    if "name" in agent["defaults"] or "count" in agent["defaults"]:
+        # These are per-profile fields, not shared settings. Without this
+        # check, _materialize_agent_profiles's **merged dict-literal splat
+        # would let a stray agent.defaults.count silently overwrite every
+        # profile's own explicit count -- e.g. defaults: {count: 100} turning
+        # a profile declared with count: 1 into 100 agents, with no error.
+        raise ValueError(
+            "agent.defaults must not contain 'name' or 'count' -- those are "
+            "per-profile fields, not shared settings"
+        )
     profiles = agent["profiles"]
     if not isinstance(profiles, list) or not profiles:
         raise ValueError("agent.profiles must be a non-empty list")

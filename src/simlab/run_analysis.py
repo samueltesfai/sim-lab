@@ -418,6 +418,14 @@ def compute_run_summary(
         final_row.mean_claim_belief_variance <= convergence_variance_threshold
     )
     final_truth_aligned = final_row.fraction_truth_aligned >= truth_alignment_threshold
+    # `not final_truth_aligned` alone isn't evidence of a *wrong* belief --
+    # agents converged near 0.5 (genuinely uncertain, not confidently
+    # anything) or a run with no truths at all (both metrics 0.0) would
+    # otherwise be mislabeled as false consensus. Require the converged
+    # belief to actually be confidently wrong.
+    final_confidently_wrong = (
+        final_row.fraction_confident_wrong >= truth_alignment_threshold
+    )
 
     return RunSummary(
         initial_mean_truth_error=initial_row.mean_abs_error_to_truth,
@@ -462,5 +470,5 @@ def compute_run_summary(
         converged=convergence_tick is not None,
         final_consensus=final_consensus,
         final_truth_aligned=final_truth_aligned,
-        final_false_consensus=final_consensus and not final_truth_aligned,
+        final_false_consensus=final_consensus and final_confidently_wrong,
     )
