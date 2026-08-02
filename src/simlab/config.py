@@ -48,30 +48,47 @@ def _deep_merge(base: dict, override: dict) -> dict:
     return merged
 
 
-# Maps each flat Agent constructor kwarg to the nested (section, field) path
-# it reads from a materialized settings dict. Declarative on purpose: a test
-# (test_settings_to_agent_kwargs_completeness in tests/test_config.py) walks
-# config_schema.AgentSettings and asserts every scalar leaf field appears
-# here as a value -- otherwise a newly added settings field would validate,
-# materialize, and hash into fingerprints fine, but silently never reach
-# Agent, since nothing else would catch a missing translation.
-_SCALAR_KWARG_PATHS: dict[str, tuple[str, str]] = {
-    "observation_attention": ("observation", "attention"),
-    "observation_bias": ("observation", "bias"),
-    "default_trust": ("trust", "default"),
-    "learning_rate": ("learning", "rate"),
-    "observe_weight": ("learning", "observe_weight"),
-    "hear_weight": ("learning", "hear_weight"),
-    "verify_weight": ("learning", "verify_weight"),
-    "social_confidence_bound": ("social", "confidence_bound"),
-    "social_trust_update_rate": ("social", "trust_update_rate"),
-    "social_update_trust_on_rejection": ("social", "update_trust_on_rejection"),
+# Settings sections translated as a whole dict (string action name ->
+# ActionType), not field-by-field like the others.
+_ACTION_MAP_FIELDS = {"action_preference", "action_cost"}
+
+# The Agent constructor kwarg for a materialized settings path (section,
+# field) defaults to "{section}_{field}" (e.g. social.confidence_bound ->
+# social_confidence_bound). These are the fields where Agent's actual kwarg
+# name doesn't follow that convention.
+_KWARG_NAME_OVERRIDES: dict[tuple[str, str], str] = {
+    ("trust", "default"): "default_trust",
+    ("learning", "observe_weight"): "observe_weight",
+    ("learning", "hear_weight"): "hear_weight",
+    ("learning", "verify_weight"): "verify_weight",
 }
+
+
+def _kwarg_name(section: str, field: str) -> str:
+    """The Agent constructor kwarg a materialized settings path
+    (section, field) translates to.
+
+    :param section: Top-level settings key (e.g. "social")
+    :type section: str
+    :param field: Field name within that section (e.g. "confidence_bound")
+    :type field: str
+    :return: The corresponding ``Agent.__init__`` keyword argument name
+    :rtype: str
+    """
+    return _KWARG_NAME_OVERRIDES.get((section, field), f"{section}_{field}")
 
 
 def _settings_to_agent_kwargs(settings: dict, profile_name: str) -> dict:
     """Translate a fully-materialized agent settings node into Agent
     constructor kwargs.
+
+    Walks every settings section generically (deriving each field's kwarg
+    name via ``_kwarg_name``) instead of reading from a fixed field list, so
+    a newly added settings field is threaded through automatically -- only
+    a field whose Agent kwarg name doesn't follow the "{section}_{field}"
+    convention needs an entry in ``_KWARG_NAME_OVERRIDES``.
+    ``action_preference``/``action_cost`` are handled separately since they
+    translate as a whole dict, not field-by-field.
 
     ``settings`` must already have every field present (see
     ``_materialize_agent_profiles``); nothing here is optional.
@@ -90,8 +107,11 @@ def _settings_to_agent_kwargs(settings: dict, profile_name: str) -> dict:
         },
         "action_cost": {ActionType[k]: v for k, v in settings["action_cost"].items()},
     }
-    for kwarg_name, (section, field) in _SCALAR_KWARG_PATHS.items():
-        kwargs[kwarg_name] = settings[section][field]
+    for section, fields in settings.items():
+        if section in _ACTION_MAP_FIELDS:
+            continue
+        for field, value in fields.items():
+            kwargs[_kwarg_name(section, field)] = value
     return kwargs
 
 
