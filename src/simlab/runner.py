@@ -140,7 +140,7 @@ def execute_run(request: RunRequest) -> RunResult:
 
     telemetry = Telemetry()
     initial_row = telemetry.record_initial(world)
-    scenario = extract_scenario_features(world, initial_row)
+    scenario = extract_scenario_features(world, initial_row, resolved_config)
 
     run_start = perf_counter()
 

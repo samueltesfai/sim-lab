@@ -1,7 +1,6 @@
 import pytest
 
-from simlab.agent import Agent
-from simlab.kernel_types import ActionType
+from simlab.config import build_world, materialize_config
 from simlab.run_analysis import (
     compute_run_summary,
     extract_scenario_features,
@@ -10,15 +9,28 @@ from simlab.run_analysis import (
 from simlab.telemetry import Telemetry, TelemetryRow
 from simlab.world import World
 
+_DEFAULT_TRUTHS = {0: True, 1: False}
 
-def _build_world(profiles: list[tuple[str, dict]], *, truths=None) -> World:
-    agents = []
-    next_id = 0
-    for profile_name, kwargs in profiles:
-        agent = Agent(id=next_id, rng_seed=next_id, profile_name=profile_name, **kwargs)
-        agents.append(agent)
-        next_id += 1
-    return World(agents=agents, truths=truths or {0: True, 1: False}, rng_seed=1)
+
+def _build_scenario(
+    profiles: list[dict], *, truths: dict | None = None
+) -> tuple[World, dict]:
+    """Build a World plus its materialized config from a list of profile
+    dicts (``{"name":, "count":, **settings_overrides}``), exercising the
+    same config -> build_world / materialize_config pipeline that
+    extract_scenario_features's ``resolved_config`` argument comes from in
+    production.
+    """
+    cfg = {
+        "world": {
+            "rng_seed": 1,
+            "truths": truths or _DEFAULT_TRUTHS,
+            "noise": {"OBSERVE": 0.0, "HEAR": 0.0, "VERIFY": 0.0},
+            "observation": {"private_event_rate": 0.0, "global_event_rate": 0.0},
+        },
+        "agent": {"defaults": {}, "profiles": profiles},
+    }
+    return build_world(cfg), materialize_config(cfg)
 
 
 # ---------------------------------------------------------------------------
@@ -27,13 +39,16 @@ def _build_world(profiles: list[tuple[str, dict]], *, truths=None) -> World:
 
 
 def test_extract_scenario_features_population_and_world_settings():
-    world = _build_world(
-        [("default", {}), ("default", {}), ("skeptic", {"default_trust": 0.1})]
+    world, resolved_config = _build_scenario(
+        [
+            {"name": "default", "count": 2},
+            {"name": "skeptic", "count": 1, "trust": {"default": 0.1}},
+        ]
     )
     telemetry = Telemetry()
     initial_row = telemetry.record_initial(world)
 
-    features = extract_scenario_features(world, initial_row)
+    features = extract_scenario_features(world, initial_row, resolved_config)
 
     assert features["num_agents"] == 3
     assert features["num_claims"] == 2
@@ -46,11 +61,11 @@ def test_extract_scenario_features_population_and_world_settings():
 
 
 def test_extract_scenario_features_graph_stats_match_network():
-    world = _build_world([("default", {}) for _ in range(6)])
+    world, resolved_config = _build_scenario([{"name": "default", "count": 6}])
     telemetry = Telemetry()
     initial_row = telemetry.record_initial(world)
 
-    features = extract_scenario_features(world, initial_row)
+    features = extract_scenario_features(world, initial_row, resolved_config)
 
     out_degrees = [len(world.neighbors(agent.id)) for agent in world.agents]
     num_nodes = len(world.agents)
@@ -69,16 +84,16 @@ def test_extract_scenario_features_graph_stats_match_network():
 
 
 def test_extract_scenario_features_agent_parameter_stats():
-    world = _build_world(
+    world, resolved_config = _build_scenario(
         [
-            ("default", {"observation_attention": 0.2}),
-            ("default", {"observation_attention": 0.8}),
+            {"name": "low", "count": 1, "observation": {"attention": 0.2}},
+            {"name": "high", "count": 1, "observation": {"attention": 0.8}},
         ]
     )
     telemetry = Telemetry()
     initial_row = telemetry.record_initial(world)
 
-    features = extract_scenario_features(world, initial_row)
+    features = extract_scenario_features(world, initial_row, resolved_config)
 
     assert features["agent_attention_mean"] == pytest.approx(0.5)
     assert features["agent_attention_std"] == pytest.approx(0.3)
@@ -88,36 +103,38 @@ def test_extract_scenario_features_includes_all_behavior_driving_params():
     """Channel weights, action preferences/costs, and update_trust_on_rejection
     must be captured -- two scenarios differing only in these would otherwise
     look identical in scenario features despite behaving differently."""
-    world = _build_world(
+    world, resolved_config = _build_scenario(
         [
-            (
-                "vocal",
-                {
+            {
+                "name": "vocal",
+                "count": 1,
+                "learning": {
                     "observe_weight": 0.9,
                     "hear_weight": 0.1,
                     "verify_weight": 0.2,
-                    "social_update_trust_on_rejection": True,
-                    "action_preference": {ActionType.VERIFY: 1.0},
-                    "action_cost": {ActionType.VERIFY: 0.1},
                 },
-            ),
-            (
-                "quiet",
-                {
+                "social": {"update_trust_on_rejection": True},
+                "action_preference": {"VERIFY": 1.0},
+                "action_cost": {"VERIFY": 0.1},
+            },
+            {
+                "name": "quiet",
+                "count": 1,
+                "learning": {
                     "observe_weight": 0.1,
                     "hear_weight": 0.9,
                     "verify_weight": 0.8,
-                    "social_update_trust_on_rejection": False,
-                    "action_preference": {ActionType.VERIFY: 0.0},
-                    "action_cost": {ActionType.VERIFY: 0.9},
                 },
-            ),
+                "social": {"update_trust_on_rejection": False},
+                "action_preference": {"VERIFY": 0.0},
+                "action_cost": {"VERIFY": 0.9},
+            },
         ]
     )
     telemetry = Telemetry()
     initial_row = telemetry.record_initial(world)
 
-    features = extract_scenario_features(world, initial_row)
+    features = extract_scenario_features(world, initial_row, resolved_config)
 
     assert features["agent_observe_weight_mean"] == pytest.approx(0.5)
     assert features["agent_hear_weight_mean"] == pytest.approx(0.5)
@@ -134,33 +151,35 @@ def test_extract_scenario_features_per_profile_distinguishes_parameter_pairing()
     per-profile features if the pairing differs."""
 
     def build(attentive_learning_rate, distracted_learning_rate):
-        return _build_world(
+        return _build_scenario(
             [
-                (
-                    "attentive",
-                    {
-                        "observation_attention": 0.9,
-                        "learning_rate": attentive_learning_rate,
-                    },
-                ),
-                (
-                    "distracted",
-                    {
-                        "observation_attention": 0.1,
-                        "learning_rate": distracted_learning_rate,
-                    },
-                ),
+                {
+                    "name": "attentive",
+                    "count": 1,
+                    "observation": {"attention": 0.9},
+                    "learning": {"rate": attentive_learning_rate},
+                },
+                {
+                    "name": "distracted",
+                    "count": 1,
+                    "observation": {"attention": 0.1},
+                    "learning": {"rate": distracted_learning_rate},
+                },
             ]
         )
 
-    world_paired = build(0.9, 0.1)
-    world_swapped = build(0.1, 0.9)
+    world_paired, resolved_paired = build(0.9, 0.1)
+    world_swapped, resolved_swapped = build(0.1, 0.9)
     telemetry = Telemetry()
     row_paired = telemetry.record_initial(world_paired)
     row_swapped = telemetry.record_initial(world_swapped)
 
-    features_paired = extract_scenario_features(world_paired, row_paired)
-    features_swapped = extract_scenario_features(world_swapped, row_swapped)
+    features_paired = extract_scenario_features(
+        world_paired, row_paired, resolved_paired
+    )
+    features_swapped = extract_scenario_features(
+        world_swapped, row_swapped, resolved_swapped
+    )
 
     # Marginals are identical -- this is exactly what makes them insufficient.
     assert features_paired["agent_learning_rate_mean"] == pytest.approx(
@@ -186,11 +205,11 @@ def test_extract_scenario_features_per_profile_distinguishes_parameter_pairing()
 
 
 def test_extract_scenario_features_initial_state_matches_telemetry_row():
-    world = _build_world([("default", {}) for _ in range(4)])
+    world, resolved_config = _build_scenario([{"name": "default", "count": 4}])
     telemetry = Telemetry()
     initial_row = telemetry.record_initial(world)
 
-    features = extract_scenario_features(world, initial_row)
+    features = extract_scenario_features(world, initial_row, resolved_config)
 
     assert features["initial.belief_mean"] == initial_row.belief_mean
     assert features["initial.belief_std"] == initial_row.belief_std
@@ -205,11 +224,11 @@ def test_extract_scenario_features_initial_state_matches_telemetry_row():
 
 
 def test_extract_scenario_features_no_agents_does_not_crash():
-    world = World(agents=[], truths={0: True}, rng_seed=1)
+    world, resolved_config = _build_scenario([])
     telemetry = Telemetry()
     initial_row = telemetry.record_initial(world)
 
-    features = extract_scenario_features(world, initial_row)
+    features = extract_scenario_features(world, initial_row, resolved_config)
 
     assert features["num_agents"] == 0
     assert features["graph.num_nodes"] == 0

@@ -3,8 +3,8 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Any
 
-from simlab.agent import Agent
 from simlab.kernel_types import ActionType
 from simlab.telemetry import TelemetryRow
 from simlab.world import World
@@ -68,101 +68,146 @@ def _graph_features(world: World) -> dict[str, float | int]:
     }
 
 
-def _profile_features(world: World) -> dict[str, float | int]:
-    num_agents = len(world.agents)
+def _weighted_mean_std(
+    values_with_weights: list[tuple[float, int]],
+) -> tuple[float, float]:
+    """Population mean/std of a value repeated ``weight`` times, without
+    materializing the repeated list -- used for per-profile parameters,
+    where ``weight`` is the profile's agent count.
+    """
+    total = sum(weight for _, weight in values_with_weights)
+    if not total:
+        return 0.0, 0.0
+    mean = sum(value * weight for value, weight in values_with_weights) / total
+    var = (
+        sum(weight * (value - mean) ** 2 for value, weight in values_with_weights)
+        / total
+    )
+    return mean, math.sqrt(var)
+
+
+def _profile_features(agent_profiles: list[dict]) -> dict[str, float | int]:
+    num_agents = sum(profile["count"] for profile in agent_profiles)
     features: dict[str, float | int] = {}
-    for name, count in world.profile_counts.items():
+    for profile in agent_profiles:
+        name = profile["name"]
+        count = profile["count"]
         features[f"profile_count.{name}"] = count
         features[f"profile_fraction.{name}"] = count / num_agents if num_agents else 0.0
     return features
 
 
-def _agent_parameter_features(world: World) -> dict[str, float]:
-    parameter_series = {
-        "agent_attention": [a.observation_attention for a in world.agents],
-        "agent_bias": [a.observation_bias for a in world.agents],
-        "agent_learning_rate": [a.learning_rate for a in world.agents],
-        "agent_observe_weight": [a.observe_weight for a in world.agents],
-        "agent_hear_weight": [a.hear_weight for a in world.agents],
-        "agent_verify_weight": [a.verify_weight for a in world.agents],
-        "agent_default_trust": [a.default_trust for a in world.agents],
-        "agent_confidence_bound": [a.social_confidence_bound for a in world.agents],
-        "agent_trust_update_rate": [a.social_trust_update_rate for a in world.agents],
-    }
+_PARAMETER_PATHS: dict[str, tuple[str, ...]] = {
+    "agent_attention": ("observation", "attention"),
+    "agent_bias": ("observation", "bias"),
+    "agent_learning_rate": ("learning", "rate"),
+    "agent_observe_weight": ("learning", "observe_weight"),
+    "agent_hear_weight": ("learning", "hear_weight"),
+    "agent_verify_weight": ("learning", "verify_weight"),
+    "agent_default_trust": ("trust", "default"),
+    "agent_confidence_bound": ("social", "confidence_bound"),
+    "agent_trust_update_rate": ("social", "trust_update_rate"),
+}
 
+
+def _get_path(profile: dict, path: tuple[str, ...]) -> float:
+    value: Any = profile
+    for key in path:
+        value = value[key]
+    return value
+
+
+def _agent_parameter_features(agent_profiles: list[dict]) -> dict[str, float]:
+    """Agent parameter distributions derived directly from each profile's
+    materialized settings -- every agent in a profile shares those settings
+    exactly (no per-agent jitter), so this needs no constructed ``World``.
+
+    Reports both population-wide marginal mean/std (weighted by profile
+    count) and a per-profile snapshot. The marginals alone can't
+    distinguish which parameter values are paired together on the same
+    agents -- two profile assignments with identical per-parameter
+    marginals can still behave differently depending on that pairing
+    (e.g. attentive agents also learning fast vs. attentive agents
+    learning slowly) -- so the per-profile snapshot preserves it.
+
+    :param agent_profiles: One materialized settings dict per profile, as
+        returned by ``config.materialize_config(cfg)["agent"]["profiles"]``
+    :type agent_profiles: list[dict]
+    :return: Population-wide ``{label}_mean``/``{label}_std`` plus
+        ``agent_profile.<name>.<parameter>`` keys
+    :rtype: dict[str, float]
+    """
     features: dict[str, float] = {}
-    for label, values in parameter_series.items():
-        mean, std = _mean_std(values)
+
+    for label, path in _PARAMETER_PATHS.items():
+        mean, std = _weighted_mean_std(
+            [(_get_path(p, path), p["count"]) for p in agent_profiles]
+        )
         features[f"{label}_mean"] = mean
         features[f"{label}_std"] = std
 
-    num_agents = len(world.agents)
+    total_agents = sum(profile["count"] for profile in agent_profiles)
     features["agent_update_trust_on_rejection_fraction"] = (
-        sum(1 for a in world.agents if a.social_update_trust_on_rejection) / num_agents
-        if num_agents
+        sum(
+            profile["count"]
+            for profile in agent_profiles
+            if profile["social"]["update_trust_on_rejection"]
+        )
+        / total_agents
+        if total_agents
         else 0.0
     )
 
     for action in ActionType:
-        pref_mean, pref_std = _mean_std(
-            [a.action_preference[action] for a in world.agents]
+        pref_mean, pref_std = _weighted_mean_std(
+            [
+                (profile["action_preference"][action.name], profile["count"])
+                for profile in agent_profiles
+            ]
         )
-        cost_mean, cost_std = _mean_std([a.action_cost[action] for a in world.agents])
+        cost_mean, cost_std = _weighted_mean_std(
+            [
+                (profile["action_cost"][action.name], profile["count"])
+                for profile in agent_profiles
+            ]
+        )
         features[f"agent_action_preference.{action.name}_mean"] = pref_mean
         features[f"agent_action_preference.{action.name}_std"] = pref_std
         features[f"agent_action_cost.{action.name}_mean"] = cost_mean
         features[f"agent_action_cost.{action.name}_std"] = cost_std
 
-    features.update(_per_profile_parameter_features(world))
+    features.update(_per_profile_parameter_features(agent_profiles))
 
     return features
 
 
-def _per_profile_parameter_features(world: World) -> dict[str, float]:
-    """One parameter snapshot per profile, keyed by ``profile_name``.
+def _per_profile_parameter_features(agent_profiles: list[dict]) -> dict[str, float]:
+    """One parameter snapshot per profile, keyed by ``profile_name`` -- see
+    ``_agent_parameter_features`` for why this is necessary alongside the
+    population-wide marginals.
 
-    The population-wide mean/std above only capture each parameter's
-    marginal distribution, so two profile assignments with identical
-    per-parameter marginals can still look identical in scenario features
-    even though which values are paired together on the same agents
-    changes simulation behavior (e.g. attentive agents also learning fast
-    vs. attentive agents learning slowly). Since a profile is, by
-    construction, a group of agents sharing one exact settings dict, one
-    representative agent per profile fully captures that pairing -- this
-    assumes same-named agents were built as a profile (true for anything
-    built via ``config.build_world``) rather than hand-assembled with
-    diverging settings under a shared name.
-
-    :param world: The world to extract per-profile agent settings from
-    :type world: World
+    :param agent_profiles: One materialized settings dict per profile
+    :type agent_profiles: list[dict]
     :return: ``agent_profile.<name>.<parameter>`` -> value, one set of keys
-        per distinct ``profile_name``
+        per profile
     :rtype: dict[str, float]
     """
-    representative_by_profile: dict[str, Agent] = {}
-    for agent in world.agents:
-        representative_by_profile.setdefault(agent.profile_name, agent)
-
     features: dict[str, float] = {}
-    for name, agent in representative_by_profile.items():
-        prefix = f"agent_profile.{name}"
-        features[f"{prefix}.attention"] = agent.observation_attention
-        features[f"{prefix}.bias"] = agent.observation_bias
-        features[f"{prefix}.learning_rate"] = agent.learning_rate
-        features[f"{prefix}.observe_weight"] = agent.observe_weight
-        features[f"{prefix}.hear_weight"] = agent.hear_weight
-        features[f"{prefix}.verify_weight"] = agent.verify_weight
-        features[f"{prefix}.default_trust"] = agent.default_trust
-        features[f"{prefix}.confidence_bound"] = agent.social_confidence_bound
-        features[f"{prefix}.trust_update_rate"] = agent.social_trust_update_rate
+    for profile in agent_profiles:
+        prefix = f"agent_profile.{profile['name']}"
+        for label, path in _PARAMETER_PATHS.items():
+            key = label.removeprefix("agent_")
+            features[f"{prefix}.{key}"] = _get_path(profile, path)
         features[f"{prefix}.update_trust_on_rejection"] = float(
-            agent.social_update_trust_on_rejection
+            profile["social"]["update_trust_on_rejection"]
         )
         for action in ActionType:
-            features[f"{prefix}.action_preference.{action.name}"] = (
-                agent.action_preference[action]
-            )
-            features[f"{prefix}.action_cost.{action.name}"] = agent.action_cost[action]
+            features[f"{prefix}.action_preference.{action.name}"] = profile[
+                "action_preference"
+            ][action.name]
+            features[f"{prefix}.action_cost.{action.name}"] = profile["action_cost"][
+                action.name
+            ]
 
     return features
 
@@ -181,7 +226,7 @@ def _initial_state_features(initial_row: TelemetryRow) -> dict[str, float]:
 
 
 def extract_scenario_features(
-    world: World, initial_row: TelemetryRow
+    world: World, initial_row: TelemetryRow, resolved_config: dict
 ) -> dict[str, float | int]:
     """
     Extract scenario features describing conditions known before the run:
@@ -189,22 +234,44 @@ def extract_scenario_features(
     distributions (both population-wide marginals and per-profile
     snapshots, since marginals alone can't distinguish which parameter
     values are paired on the same agents), world observation/noise
-    settings, and the initial belief state. ``initial_row`` must come from
-    ``Telemetry.record_initial(world)`` for the same world, so
-    belief/trust/truth-alignment stats aren't recomputed here.
+    settings, and the initial belief state.
+
+    Everything except graph structure and initial state is a deterministic
+    function of the config (no per-agent jitter is ever applied to a
+    profile's settings), so those come from ``resolved_config`` rather than
+    being re-derived from constructed ``Agent`` instances. Graph structure
+    depends on the world's RNG draws at construction, and the initial
+    belief state depends on each agent's own RNG, so those still require
+    the constructed ``world``/``initial_row``.
+
+    :param world: The constructed world, used for graph structure only
+    :type world: World
+    :param initial_row: Must come from ``Telemetry.record_initial(world)``
+        for the same world, so belief/trust/truth-alignment stats aren't
+        recomputed here
+    :type initial_row: TelemetryRow
+    :param resolved_config: The fully effective config, as returned by
+        ``config.materialize_config(cfg)``
+    :type resolved_config: dict
+    :return: The scenario feature dict
+    :rtype: dict[str, float | int]
     """
+    world_settings = resolved_config["world"]
+    agent_profiles = resolved_config["agent"]["profiles"]
+    num_agents = sum(profile["count"] for profile in agent_profiles)
+
     features: dict[str, float | int] = {
-        "num_agents": len(world.agents),
-        "num_claims": len(world.claims),
-        "private_event_rate": world.private_event_rate,
-        "global_event_rate": world.global_event_rate,
+        "num_agents": num_agents,
+        "num_claims": len(world_settings["truths"]),
+        "private_event_rate": world_settings["observation"]["private_event_rate"],
+        "global_event_rate": world_settings["observation"]["global_event_rate"],
     }
-    for memory_type, value in world.noise.items():
-        features[f"noise.{memory_type.name}"] = value
+    for memory_type, value in world_settings["noise"].items():
+        features[f"noise.{memory_type}"] = value
 
     features.update(_graph_features(world))
-    features.update(_profile_features(world))
-    features.update(_agent_parameter_features(world))
+    features.update(_profile_features(agent_profiles))
+    features.update(_agent_parameter_features(agent_profiles))
     features.update(_initial_state_features(initial_row))
 
     return features
