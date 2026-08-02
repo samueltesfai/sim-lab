@@ -17,6 +17,11 @@ Two families of settings models exist:
   constructor defaults means the two can't silently disagree the way two
   independent default declarations could.
 
+``WorldSection.noise`` follows the same principle: its default is
+``dict(world.DEFAULT_NOISE)``, not an empty dict, so the model reflects the
+real effective default rather than requiring a reader to know it gets
+filled in later by ``config.py``'s merge.
+
 Strict types (``StrictInt``/``StrictFloat``/``StrictBool``/``StrictStr``) are
 used throughout so that type-confused values -- a boolean where a rate is
 expected, a string key where a claim id is expected -- are rejected here
@@ -32,6 +37,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic import StrictBool, StrictFloat, StrictInt, StrictStr
 
 from simlab.agent import DEFAULT_SETTINGS
+from simlab.world import DEFAULT_NOISE
 
 ActionName = Literal["IDLE", "VERIFY", "COMMUNICATE", "BROADCAST"]
 
@@ -182,7 +188,7 @@ class WorldSection(_Strict):
     rng_seed: StrictInt
     truths: dict[StrictInt, StrictBool]
     noise: dict[Literal["OBSERVE", "HEAR", "VERIFY"], StrictFloat] = Field(
-        default_factory=dict
+        default_factory=lambda: dict(DEFAULT_NOISE)
     )
     observation: WorldObservation
 
