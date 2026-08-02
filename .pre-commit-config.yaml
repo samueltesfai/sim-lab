@@ -8,6 +8,18 @@ repos:
 
   - repo: local
     hooks:
+      - id: generate-config-docs
+        name: regenerate config docs
+        description: >-
+          Regenerates docs/config.md's Config Structure/Validation Rules
+          blocks from config_schema.py. If that changes anything, the hook
+          fails (same as ruff-format modifying a file) so the diff can be
+          reviewed and staged deliberately instead of committed unseen.
+        entry: uv run python scripts/generate_config_skeleton.py
+        language: system
+        pass_filenames: false
+        always_run: true
+
       - id: pytest
         name: pytest
         entry: uv run pytest
