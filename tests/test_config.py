@@ -7,7 +7,9 @@ import yaml
 
 from simlab.agent import Agent
 from simlab.config import (
+    _materialize_world_settings,
     _settings_to_agent_kwargs,
+    _settings_to_world_kwargs,
     load_config,
     validate_config,
     expand_agent_specs,
@@ -950,6 +952,27 @@ def test_settings_to_agent_kwargs_completeness():
         "id",
         "rng_seed",
     }
+    assert set(kwargs) == expected
+
+
+def test_settings_to_world_kwargs_completeness():
+    """_settings_to_world_kwargs must produce exactly the settings-derived
+    kwargs World.__init__ accepts -- mirrors
+    test_settings_to_agent_kwargs_completeness for World's construction
+    path."""
+    world_settings = _materialize_world_settings(
+        {
+            "world": {
+                "rng_seed": 0,
+                "truths": {0: True},
+                "noise": {},
+                "observation": {"private_event_rate": 0.1, "global_event_rate": 0.0},
+            }
+        }
+    )
+    kwargs = _settings_to_world_kwargs(world_settings)
+
+    expected = set(inspect.signature(World.__init__).parameters) - {"self", "agents"}
     assert set(kwargs) == expected
 
 

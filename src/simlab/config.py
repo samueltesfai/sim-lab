@@ -191,6 +191,44 @@ def _materialize_world_settings(cfg: dict) -> dict:
     }
 
 
+# World settings sections translated as a whole dict, not field-by-field:
+# truths passes straight through, noise additionally needs its string keys
+# converted to MemoryType.
+_WORLD_WHOLE_DICT_FIELDS = {"truths", "noise"}
+
+
+def _settings_to_world_kwargs(world_settings: dict) -> dict:
+    """Translate a fully-materialized world settings dict into World
+    constructor kwargs.
+
+    Walks ``world_settings`` generically: a scalar leaf field (including a
+    nested one, e.g. ``observation.private_event_rate``) uses its own field
+    name as the World kwarg directly -- unlike agent settings, World's field
+    names don't collide across sections, so no section prefix is needed.
+    ``truths``/``noise`` pass through as whole dicts (``noise`` additionally
+    converted to ``MemoryType``-keyed) rather than being decomposed, mirroring
+    how ``action_preference``/``action_cost`` are handled for Agent.
+
+    :param world_settings: The materialized world section (see
+        ``_materialize_world_settings``); every field must already be present
+    :type world_settings: dict
+    :return: Keyword arguments ready to pass to ``World()`` (besides ``agents``)
+    :rtype: dict
+    """
+    kwargs: dict = {
+        "truths": world_settings["truths"],
+        "noise": {MemoryType[k]: v for k, v in world_settings["noise"].items()},
+    }
+    for key, value in world_settings.items():
+        if key in _WORLD_WHOLE_DICT_FIELDS:
+            continue
+        if isinstance(value, dict):
+            kwargs.update(value)
+        else:
+            kwargs[key] = value
+    return kwargs
+
+
 def materialize_config(cfg: dict) -> dict:
     """Return the fully effective configuration -- every field explicit, no
     field silently defaulted downstream by Agent/World construction.
@@ -233,9 +271,7 @@ def materialize_scenario(cfg: dict) -> dict:
 def build_world(cfg: dict) -> World:
     """Build a World instance from a validated configuration."""
     world_settings = _materialize_world_settings(cfg)
-
-    # World noise -> enum-keyed dict.
-    noise = {MemoryType[k]: v for k, v in world_settings["noise"].items()}
+    world_kwargs = _settings_to_world_kwargs(world_settings)
 
     # Expand agent.defaults + agent.profiles into concrete agents.
     specs = expand_agent_specs(cfg)
@@ -251,14 +287,4 @@ def build_world(cfg: dict) -> World:
         )
         agents.append(agent)
 
-    # Create world
-    world = World(
-        agents=agents,
-        truths=world_settings["truths"],
-        rng_seed=world_settings["rng_seed"],
-        noise=noise,
-        private_event_rate=world_settings["observation"]["private_event_rate"],
-        global_event_rate=world_settings["observation"]["global_event_rate"],
-    )
-
-    return world
+    return World(agents=agents, **world_kwargs)
