@@ -11,7 +11,6 @@ from simlab.config import (
     _settings_to_agent_kwargs,
     _settings_to_world_kwargs,
     load_config,
-    parse_config,
     validate_config,
     expand_agent_specs,
     world_from_config,
@@ -23,7 +22,7 @@ from simlab.world import World
 
 def _build_valid_world(config_dict: dict) -> World:
     """Build a World from a config dict, validating it in the process."""
-    return world_from_config(parse_config(config_dict))
+    return world_from_config(validate_config(config_dict))
 
 
 def create_test_config_file(config_dict: dict) -> str:
@@ -822,7 +821,7 @@ def test_validate_config_rejects_bool_for_agent_attention():
 
 def test_single_default_profile_builds():
     """A single 'default' profile builds the requested number of agents."""
-    cfg = parse_config(_config([{"name": "default", "count": 4}]))
+    cfg = validate_config(_config([{"name": "default", "count": 4}]))
     world = world_from_config(cfg)
 
     assert len(world.agents) == 4
@@ -885,7 +884,7 @@ def test_profiles_expand_counts_and_params():
 
 def test_profile_counts_determine_total_agents():
     """Total agents is the sum of profile counts; no separate world total."""
-    cfg = parse_config(
+    cfg = validate_config(
         _config([{"name": "a", "count": 20}, {"name": "b", "count": 29}])
     )
     world = world_from_config(cfg)
@@ -929,7 +928,7 @@ def test_profile_missing_count_raises():
 
 def test_expand_agent_specs_single_profile():
     """expand_agent_specs returns one spec per agent for a single default profile."""
-    cfg = parse_config(_config([{"name": "default", "count": 3}]))
+    cfg = validate_config(_config([{"name": "default", "count": 3}]))
     specs = expand_agent_specs(cfg)
 
     assert len(specs) == 3
@@ -1128,7 +1127,7 @@ def test_social_params_profile_overrides_defaults():
 
 def test_social_params_absent_uses_agent_defaults():
     """When social section is omitted, Agent defaults (1.0 / 0.0 / True) apply."""
-    cfg = parse_config(_config([{"name": "default", "count": 2}]))
+    cfg = validate_config(_config([{"name": "default", "count": 2}]))
     world = world_from_config(cfg)
 
     for agent in world.agents:

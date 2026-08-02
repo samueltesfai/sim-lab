@@ -254,7 +254,7 @@ def extract_scenario_features(
         recomputed here
     :type initial_row: TelemetryRow
     :param resolved_config: The resolved, validated config the world was
-        built from (see ``config.load_config``/``config.parse_config``)
+        built from (see ``config.load_config``/``config.validate_config``)
     :type resolved_config: SimConfig
     :return: The scenario feature dict
     :rtype: dict[str, float | int]

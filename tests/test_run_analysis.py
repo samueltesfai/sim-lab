@@ -1,6 +1,6 @@
 import pytest
 
-from simlab.config import parse_config, world_from_config
+from simlab.config import validate_config, world_from_config
 from simlab.config_schema import SimConfig
 from simlab.run_analysis import (
     _agent_parameter_features,
@@ -21,7 +21,7 @@ def _build_scenario(
 ) -> tuple[World, SimConfig]:
     """Build a World plus its resolved config from a list of profile dicts
     (``{"name":, "count":, **settings_overrides}``), exercising the same
-    config -> parse_config -> world_from_config pipeline that
+    config -> validate_config -> world_from_config pipeline that
     extract_scenario_features's ``resolved_config`` argument comes from in
     production.
     """
@@ -34,7 +34,7 @@ def _build_scenario(
         },
         "agent": {"defaults": {}, "profiles": profiles},
     }
-    cfg = parse_config(cfg_dict)
+    cfg = validate_config(cfg_dict)
     return world_from_config(cfg), cfg
 
 

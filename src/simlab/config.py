@@ -25,7 +25,7 @@ def load_config(path: str) -> SimConfig:
 
     with open(path, encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
-    return parse_config(cfg)
+    return validate_config(cfg)
 
 
 def _check_structure(cfg: dict) -> None:
@@ -76,7 +76,7 @@ def _check_structure(cfg: dict) -> None:
             raise ValueError("each agent profile must define name and count")
 
 
-def parse_config(cfg: dict) -> SimConfig:
+def validate_config(cfg: dict) -> SimConfig:
     """Merge defaults into ``cfg`` and validate the result.
 
     First checks ``cfg`` has the container shapes needed to merge safely
@@ -91,7 +91,8 @@ def parse_config(cfg: dict) -> SimConfig:
     The returned, fully-resolved ``SimConfig`` is what the rest of the
     pipeline (``world_from_config``, ``expand_agent_specs``, callers'
     fingerprinting/reporting) should use from here on -- none of it needs to
-    re-derive resolved settings from the raw ``cfg`` dict again.
+    re-derive resolved settings from the raw ``cfg`` dict again. Callers that
+    only want the pass/fail check can call this and ignore the return value.
 
     :param cfg: The loaded configuration
     :type cfg: dict
@@ -104,16 +105,6 @@ def parse_config(cfg: dict) -> SimConfig:
         return SimConfig.model_validate(_materialize_config(cfg))
     except ValidationError as e:
         raise ValueError(str(e)) from e
-
-
-def validate_config(cfg: dict) -> None:
-    """Validate configuration structure, types, and ranges.
-
-    :param cfg: The loaded configuration
-    :type cfg: dict
-    :raises ValueError: if ``cfg`` doesn't match the expected schema
-    """
-    parse_config(cfg)
 
 
 def _deep_merge(base: dict, override: dict) -> dict:
@@ -231,7 +222,7 @@ def _materialize_agent_profiles(cfg: dict) -> list[dict]:
 def expand_agent_specs(cfg: SimConfig) -> list[dict]:
     """Expand ``cfg.agent.profiles`` into one Agent spec per agent.
 
-    ``cfg.agent.profiles`` is already fully resolved (``parse_config``
+    ``cfg.agent.profiles`` is already fully resolved (``validate_config``
     merged defaults in and validated the result), so this only needs to
     translate each profile's settings into ``Agent`` constructor kwargs and
     replicate them ``count`` times -- no re-merging.
@@ -317,7 +308,7 @@ def _materialize_config(cfg: dict) -> dict:
     field silently defaulted downstream by Agent/World construction.
 
     Internal: the dict shape ``SimConfig.model_validate`` consumes inside
-    ``parse_config``. Nothing outside this module needs it -- once a caller
+    ``validate_config``. Nothing outside this module needs it -- once a caller
     holds a ``SimConfig``, ``.model_dump()``/``.model_dump(exclude=...)``
     covers the same need (a reproducibility record to hash or store) without
     re-deriving it from the raw ``cfg`` dict.
@@ -337,7 +328,7 @@ def world_from_config(cfg: SimConfig) -> World:
     """Build a World instance from a resolved, validated configuration.
 
     :param cfg: The resolved, validated config (see ``load_config``/
-        ``parse_config``)
+        ``validate_config``)
     :type cfg: SimConfig
     :return: The constructed world, with its agents
     :rtype: World
