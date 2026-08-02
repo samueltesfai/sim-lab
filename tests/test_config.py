@@ -137,9 +137,7 @@ def test_validate_config_invalid_profile_count():
         },
     }
 
-    with pytest.raises(
-        ValueError, match="agent profile default count must be a positive integer"
-    ):
+    with pytest.raises(ValueError, match=r"agent\.profiles\.0\.count"):
         validate_config(config_dict)
 
 
@@ -158,9 +156,7 @@ def test_validate_config_non_integral_profile_count():
         },
     }
 
-    with pytest.raises(
-        ValueError, match="agent profile default count must be a positive integer"
-    ):
+    with pytest.raises(ValueError, match=r"agent\.profiles\.0\.count"):
         validate_config(config_dict)
 
 
@@ -195,10 +191,7 @@ def test_validate_config_invalid_observation_rate():
         },
     }
 
-    with pytest.raises(
-        ValueError,
-        match="world.observation.private_event_rate must be in \\[0, 1\\]",
-    ):
+    with pytest.raises(ValueError, match=r"world\.observation\.private_event_rate"):
         validate_config(config_dict)
 
 
@@ -220,10 +213,7 @@ def test_validate_config_invalid_global_event_rate():
         },
     }
 
-    with pytest.raises(
-        ValueError,
-        match="world.observation.global_event_rate must be in \\[0, 1\\]",
-    ):
+    with pytest.raises(ValueError, match=r"world\.observation\.global_event_rate"):
         validate_config(config_dict)
 
 
@@ -244,10 +234,7 @@ def test_validate_config_invalid_observation_attention():
         },
     }
 
-    with pytest.raises(
-        ValueError,
-        match="agent.defaults.observation.attention must be in \\[0, 1\\]",
-    ):
+    with pytest.raises(ValueError, match=r"agent\.defaults\.observation\.attention"):
         validate_config(config_dict)
 
 
@@ -272,10 +259,7 @@ def test_validate_config_invalid_observation_bias():
         },
     }
 
-    with pytest.raises(
-        ValueError,
-        match="agent.profiles.extreme.observation.bias must be in \\[-1, 1\\]",
-    ):
+    with pytest.raises(ValueError, match=r"agent\.profiles\.0\.observation\.bias"):
         validate_config(config_dict)
 
 
@@ -311,7 +295,7 @@ def test_validate_config_negative_noise():
         },
     }
 
-    with pytest.raises(ValueError, match="world.noise.OBSERVE must be non-negative"):
+    with pytest.raises(ValueError, match="world.noise values must be non-negative"):
         validate_config(config_dict)
 
 
@@ -344,8 +328,7 @@ def test_validate_config_invalid_action_preference():
     }
 
     with pytest.raises(
-        ValueError,
-        match="agent.defaults.action_preference.VERIFY must be in \\[0, 1\\]",
+        ValueError, match=r"action_preference values must be in \[0, 1\]"
     ):
         validate_config(config_dict)
 
@@ -378,7 +361,9 @@ def test_validate_config_invalid_action_name():
         },
     }
 
-    with pytest.raises(ValueError, match="Invalid action: INVALID_ACTION"):
+    with pytest.raises(
+        ValueError, match=r"agent\.defaults\.action_preference\.INVALID_ACTION"
+    ):
         validate_config(config_dict)
 
 
@@ -410,9 +395,7 @@ def test_validate_config_negative_action_cost():
         },
     }
 
-    with pytest.raises(
-        ValueError, match="agent.defaults.action_cost.VERIFY must be non-negative"
-    ):
+    with pytest.raises(ValueError, match="action_cost values must be non-negative"):
         validate_config(config_dict)
 
 
@@ -444,7 +427,7 @@ def test_validate_config_invalid_truths():
         },
     }
 
-    with pytest.raises(ValueError, match="world.truths.0 must be boolean"):
+    with pytest.raises(ValueError, match=r"world\.truths\.0"):
         validate_config(config_dict)
 
 
@@ -465,9 +448,7 @@ def test_validate_config_rejects_unknown_learning_field():
         },
     }
 
-    with pytest.raises(
-        ValueError, match="agent.defaults.learning has unknown field\\(s\\): ratee"
-    ):
+    with pytest.raises(ValueError, match=r"agent\.defaults\.learning\.ratee"):
         validate_config(config_dict)
 
 
@@ -487,9 +468,7 @@ def test_validate_config_rejects_unknown_top_level_setting():
         },
     }
 
-    with pytest.raises(
-        ValueError, match="agent.defaults has unknown field\\(s\\): observaton"
-    ):
+    with pytest.raises(ValueError, match=r"agent\.defaults\.observaton"):
         validate_config(config_dict)
 
 
@@ -512,8 +491,7 @@ def test_validate_config_rejects_unknown_setting_on_profile():
     }
 
     with pytest.raises(
-        ValueError,
-        match="agent.profiles.default.social has unknown field\\(s\\): confidence_boundd",
+        ValueError, match=r"agent\.profiles\.0\.social\.confidence_boundd"
     ):
         validate_config(config_dict)
 
@@ -752,7 +730,7 @@ def test_validate_config_rejects_non_integer_rng_seed():
     cfg = _config([{"name": "default", "count": 1}])
     cfg["world"]["rng_seed"] = 1.9
 
-    with pytest.raises(ValueError, match="world.rng_seed must be an integer"):
+    with pytest.raises(ValueError, match=r"world\.rng_seed"):
         validate_config(cfg)
 
 
@@ -761,7 +739,7 @@ def test_validate_config_rejects_bool_rng_seed():
     cfg = _config([{"name": "default", "count": 1}])
     cfg["world"]["rng_seed"] = True
 
-    with pytest.raises(ValueError, match="world.rng_seed must be an integer"):
+    with pytest.raises(ValueError, match=r"world\.rng_seed"):
         validate_config(cfg)
 
 
@@ -769,7 +747,7 @@ def test_validate_config_rejects_missing_rng_seed():
     cfg = _config([{"name": "default", "count": 1}])
     del cfg["world"]["rng_seed"]
 
-    with pytest.raises(ValueError, match="world.rng_seed must be an integer"):
+    with pytest.raises(ValueError, match=r"world\.rng_seed"):
         validate_config(cfg)
 
 
@@ -785,6 +763,53 @@ def test_validate_config_rejects_duplicate_profile_names():
     )
 
     with pytest.raises(ValueError, match="duplicate agent profile name: 'dup'"):
+        validate_config(cfg)
+
+
+def test_validate_config_rejects_mixed_type_truth_keys():
+    """A claim id given as a string (e.g. from a quoted YAML key) alongside
+    genuine int claim ids would otherwise pass validation and crash
+    execute_run later inside json.dumps(sort_keys=True), which can't order
+    mixed int/str dict keys."""
+    cfg = _config([{"name": "default", "count": 1}])
+    cfg["world"]["truths"] = {0: True, "1": False}
+
+    with pytest.raises(ValueError, match=r"world\.truths"):
+        validate_config(cfg)
+
+
+def test_validate_config_rejects_non_string_profile_name():
+    """A non-string profile name would let e.g. profile 1 (int) and profile
+    "1" (str) both pass duplicate-name detection (1 != "1" in Python) while
+    colliding once flattened into scenario feature keys like
+    profile_count.1, and can independently crash
+    json.dumps(profile_counts, sort_keys=True) on mixed key types."""
+    cfg = _config([{"name": 1, "count": 1}])
+
+    with pytest.raises(ValueError, match=r"agent\.profiles\.0\.name"):
+        validate_config(cfg)
+
+
+def test_validate_config_rejects_bool_for_world_rate():
+    """bool is an int subclass, so global_event_rate: true would otherwise
+    pass the 0 <= x <= 1 range check -- but fingerprint normalization
+    deliberately keeps bools distinct from numbers (needed so world.truths
+    values stay true/false rather than becoming 1/0), so a boolean rate and
+    its numeric equivalent (1.0) would fingerprint differently despite
+    building an identical simulation."""
+    cfg = _config([{"name": "default", "count": 1}])
+    cfg["world"]["observation"]["global_event_rate"] = True
+
+    with pytest.raises(ValueError, match=r"world\.observation\.global_event_rate"):
+        validate_config(cfg)
+
+
+def test_validate_config_rejects_bool_for_agent_attention():
+    """Same bool-as-int gap, on an agent settings field."""
+    cfg = _config([{"name": "default", "count": 1}])
+    cfg["agent"]["defaults"]["observation"] = {"attention": True}
+
+    with pytest.raises(ValueError, match=r"agent\.defaults\.observation\.attention"):
         validate_config(cfg)
 
 
@@ -864,7 +889,7 @@ def test_profile_counts_determine_total_agents():
 def test_empty_profiles_raise():
     """An empty profiles list is rejected."""
     config_dict = _config([])
-    with pytest.raises(ValueError, match="at least one profile"):
+    with pytest.raises(ValueError, match=r"agent\.profiles"):
         validate_config(config_dict)
 
 
@@ -873,7 +898,7 @@ def test_missing_defaults_raises():
     config_dict = _config([{"name": "default", "count": 3}])
     del config_dict["agent"]["defaults"]
 
-    with pytest.raises(ValueError, match="agent.defaults is required"):
+    with pytest.raises(ValueError, match=r"agent\.defaults"):
         validate_config(config_dict)
 
 
@@ -882,16 +907,14 @@ def test_missing_profiles_raises():
     config_dict = _config([{"name": "default", "count": 3}])
     del config_dict["agent"]["profiles"]
 
-    with pytest.raises(ValueError, match="agent.profiles is required"):
+    with pytest.raises(ValueError, match=r"agent\.profiles"):
         validate_config(config_dict)
 
 
 def test_profile_missing_count_raises():
     """Each profile must define a count."""
     config_dict = _config([{"name": "default"}])
-    with pytest.raises(
-        ValueError, match="agent profile default count must be a positive integer"
-    ):
+    with pytest.raises(ValueError, match=r"agent\.profiles\.0\.count"):
         validate_config(config_dict)
 
 
@@ -912,9 +935,7 @@ def test_validate_config_rejects_non_integral_count():
     build path cannot silently change the requested population size.
     """
     cfg = _config([{"name": "default", "count": 2.9}])
-    with pytest.raises(
-        ValueError, match="agent profile default count must be a positive integer"
-    ):
+    with pytest.raises(ValueError, match=r"agent\.profiles\.0\.count"):
         validate_config(cfg)
 
 
@@ -942,8 +963,7 @@ def test_validate_social_confidence_bound_invalid():
     for val in [-0.1, 1.1]:
         cfg = _social_config({"confidence_bound": val})
         with pytest.raises(
-            ValueError,
-            match="agent.defaults.social.confidence_bound must be in \\[0, 1\\]",
+            ValueError, match=r"agent\.defaults\.social\.confidence_bound"
         ):
             validate_config(cfg)
 
@@ -960,8 +980,7 @@ def test_validate_social_trust_update_rate_invalid():
     for val in [-0.01, 1.5]:
         cfg = _social_config({"trust_update_rate": val})
         with pytest.raises(
-            ValueError,
-            match="agent.defaults.social.trust_update_rate must be in \\[0, 1\\]",
+            ValueError, match=r"agent\.defaults\.social\.trust_update_rate"
         ):
             validate_config(cfg)
 
@@ -977,8 +996,7 @@ def test_validate_social_update_trust_on_rejection_invalid():
     """Non-boolean update_trust_on_rejection is rejected."""
     cfg = _social_config({"update_trust_on_rejection": "yes"})
     with pytest.raises(
-        ValueError,
-        match="agent.defaults.social.update_trust_on_rejection must be boolean",
+        ValueError, match=r"agent\.defaults\.social\.update_trust_on_rejection"
     ):
         validate_config(cfg)
 
