@@ -207,8 +207,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         "-o",
         "--output-dir",
         type=str,
-        required=True,
-        help="Directory to write the run's artifact folder under",
+        default="runs",
+        help="Directory to write the run's artifact folder under (default: runs)",
     )
     parser.add_argument(
         "--run-id",

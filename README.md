@@ -76,10 +76,10 @@ simlab-viz --config configs/default.yaml --steps 500
 
 Runs a simulation with no visualization and writes a self-contained run
 artifact (`manifest.json`, `summary.json`, `trajectory.csv`) to
-`<output-dir>/<run-id>/`:
+`<output-dir>/<run-id>/` (`--output-dir` defaults to `runs/`):
 
 ```bash
-simlab-run --config configs/default.yaml --steps 500 --output-dir runs/
+simlab-run --config configs/default.yaml --steps 500
 ```
 
 ---

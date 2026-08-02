@@ -1,7 +1,6 @@
 import json
 import os
 import tempfile
-from unittest.mock import patch
 
 import pytest
 import yaml
@@ -46,10 +45,10 @@ def config_path():
         os.unlink(path)
 
 
-def test_cli_runs_headlessly_and_writes_artifacts(config_path, tmp_path):
+def test_cli_runs_headlessly_and_writes_artifacts(config_path, tmp_path, mocker):
     output_dir = str(tmp_path / "runs")
 
-    with patch(
+    mocker.patch(
         "sys.argv",
         [
             "python -m simlab.runner",
@@ -62,8 +61,8 @@ def test_cli_runs_headlessly_and_writes_artifacts(config_path, tmp_path):
             "--run-id",
             "cli-run",
         ],
-    ):
-        main()
+    )
+    main()
 
     run_dir = os.path.join(output_dir, "cli-run")
     assert os.path.isfile(os.path.join(run_dir, "manifest.json"))
@@ -76,29 +75,54 @@ def test_cli_runs_headlessly_and_writes_artifacts(config_path, tmp_path):
     assert manifest["completed_steps"] == 3
 
 
-def test_cli_refuses_overwrite_by_default(config_path, tmp_path):
+def test_cli_refuses_overwrite_by_default(config_path, tmp_path, mocker):
     output_dir = str(tmp_path / "runs")
-    argv = [
-        "python -m simlab.runner",
-        "--config",
-        config_path,
-        "--steps",
-        "1",
-        "--output-dir",
-        output_dir,
-        "--run-id",
-        "dup-run",
-    ]
+    mocker.patch(
+        "sys.argv",
+        [
+            "python -m simlab.runner",
+            "--config",
+            config_path,
+            "--steps",
+            "1",
+            "--output-dir",
+            output_dir,
+            "--run-id",
+            "dup-run",
+        ],
+    )
 
-    with patch("sys.argv", argv):
+    main()
+
+    with pytest.raises(FileExistsError):
         main()
 
-    with patch("sys.argv", argv):
-        with pytest.raises(FileExistsError):
-            main()
+
+def test_cli_requires_config_and_steps(mocker):
+    mocker.patch("sys.argv", ["python -m simlab.runner"])
+    with pytest.raises(SystemExit):
+        main()
 
 
-def test_cli_requires_config_steps_and_output_dir():
-    with patch("sys.argv", ["python -m simlab.runner"]):
-        with pytest.raises(SystemExit):
-            main()
+def test_cli_output_dir_defaults_to_runs(config_path, mocker):
+    """Omitting --output-dir passes "runs" through to write_run_artifacts,
+    matching README's documented default and the runs/ entry in .gitignore."""
+    mock_write = mocker.patch(
+        "simlab.experiment_io.write_run_artifacts", return_value="runs/default-dir-run"
+    )
+
+    mocker.patch(
+        "sys.argv",
+        [
+            "python -m simlab.runner",
+            "--config",
+            config_path,
+            "--steps",
+            "1",
+            "--run-id",
+            "default-dir-run",
+        ],
+    )
+    main()
+
+    mock_write.assert_called_once_with(mocker.ANY, "runs", overwrite=False)
