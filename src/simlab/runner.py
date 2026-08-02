@@ -29,6 +29,13 @@ class RunRequest:
     run_id: str | None = None
 
     def __post_init__(self) -> None:
+        # bool is an int subclass (True/False compare as 1/0), so a library
+        # caller passing steps=True would otherwise pass this check, run
+        # exactly one step (range(True) == range(1)), and end up with
+        # requested_steps/completed_steps recorded as JSON booleans in the
+        # manifest -- reject it explicitly rather than silently accepting it.
+        if isinstance(self.steps, bool) or not isinstance(self.steps, int):
+            raise TypeError(f"steps must be an int, got {type(self.steps).__name__}")
         if self.steps < 0:
             raise ValueError(f"steps must be >= 0, got {self.steps}")
 

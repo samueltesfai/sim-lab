@@ -209,6 +209,39 @@ def test_extract_scenario_features_per_profile_distinguishes_parameter_pairing()
     )
 
 
+def test_extract_scenario_features_encodes_profile_order():
+    """world_from_config assigns agent ids (and therefore each agent's
+    rng_seed and position in the network-generation RNG stream) sequentially
+    in agent.profiles list order, so two configs with the same named
+    profiles/counts/settings but a reversed profile list build genuinely
+    different simulations. Confirmed directly before this feature existed:
+    such a pair produced byte-identical scenario feature dicts despite the
+    different per-agent id/rng_seed assignment -- order_index (combined with
+    the already-recorded profile_count.<name>) is enough to tell them apart
+    and reconstruct which agent id range each profile occupies."""
+
+    def build(profiles):
+        return _build_scenario(profiles)
+
+    profile_a = {"name": "a", "count": 3, "learning": {"rate": 0.9}}
+    profile_b = {"name": "b", "count": 3, "learning": {"rate": 0.1}}
+
+    world_ab, resolved_ab = build([profile_a, profile_b])
+    world_ba, resolved_ba = build([profile_b, profile_a])
+    telemetry = Telemetry()
+    row_ab = telemetry.record_initial(world_ab)
+    row_ba = telemetry.record_initial(world_ba)
+
+    features_ab = extract_scenario_features(world_ab, row_ab, resolved_ab)
+    features_ba = extract_scenario_features(world_ba, row_ba, resolved_ba)
+
+    assert features_ab["agent_profile.a.order_index"] == 0
+    assert features_ab["agent_profile.b.order_index"] == 1
+    assert features_ba["agent_profile.a.order_index"] == 1
+    assert features_ba["agent_profile.b.order_index"] == 0
+    assert features_ab != features_ba
+
+
 def test_extract_scenario_features_initial_state_matches_telemetry_row():
     world, resolved_config = _build_scenario([{"name": "default", "count": 4}])
     telemetry = Telemetry()

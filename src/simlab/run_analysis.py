@@ -118,7 +118,9 @@ def _get_path(profile: AgentProfile, path: tuple[str, ...]) -> float:
     return value
 
 
-def _agent_parameter_features(agent_profiles: list[AgentProfile]) -> dict[str, float]:
+def _agent_parameter_features(
+    agent_profiles: list[AgentProfile],
+) -> dict[str, float | int]:
     """Agent parameter distributions derived directly from each profile's
     materialized settings -- every agent in a profile shares those settings
     exactly (no per-agent jitter), so this needs no constructed ``World``.
@@ -136,9 +138,9 @@ def _agent_parameter_features(agent_profiles: list[AgentProfile]) -> dict[str, f
     :type agent_profiles: list[AgentProfile]
     :return: Population-wide ``{label}_mean``/``{label}_std`` plus
         ``agent_profile.<name>.<parameter>`` keys
-    :rtype: dict[str, float]
+    :rtype: dict[str, float | int]
     """
-    features: dict[str, float] = {}
+    features: dict[str, float | int] = {}
 
     for label, path in _PARAMETER_PATHS.items():
         mean, std = _weighted_mean_std(
@@ -184,20 +186,35 @@ def _agent_parameter_features(agent_profiles: list[AgentProfile]) -> dict[str, f
 
 def _per_profile_parameter_features(
     agent_profiles: list[AgentProfile],
-) -> dict[str, float]:
+) -> dict[str, float | int]:
     """One parameter snapshot per profile, keyed by ``profile_name`` -- see
     ``_agent_parameter_features`` for why this is necessary alongside the
     population-wide marginals.
 
-    :param agent_profiles: One resolved settings object per profile
+    Also records each profile's position in ``agent.profiles`` --
+    ``world_from_config`` assigns agent ids (and therefore each agent's
+    ``rng_seed`` and position in the network-generation RNG stream)
+    sequentially in that list order, so two configs with the same named
+    profiles/counts/settings but a reversed profile list build genuinely
+    different simulations while every other feature here (keyed by name, or
+    an aggregate/marginal) stays identical -- confirmed directly: such a
+    pair produces byte-identical scenario feature dicts despite different
+    per-agent id/rng_seed assignment. ``order_index`` combined with the
+    already-recorded ``profile_count.<name>`` (see ``_profile_features``)
+    is enough to reconstruct exactly which agent id range each profile
+    occupies, without duplicating that computation here.
+
+    :param agent_profiles: One resolved settings object per profile, in
+        ``agent.profiles`` order
     :type agent_profiles: list[AgentProfile]
     :return: ``agent_profile.<name>.<parameter>`` -> value, one set of keys
         per profile
-    :rtype: dict[str, float]
+    :rtype: dict[str, float | int]
     """
-    features: dict[str, float] = {}
-    for profile in agent_profiles:
+    features: dict[str, float | int] = {}
+    for order_index, profile in enumerate(agent_profiles):
         prefix = f"agent_profile.{profile.name}"
+        features[f"{prefix}.order_index"] = order_index
         for label, path in _PARAMETER_PATHS.items():
             key = label.removeprefix("agent_")
             features[f"{prefix}.{key}"] = _get_path(profile, path)
