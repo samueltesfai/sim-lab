@@ -1,22 +1,32 @@
-"""Runtime guard ensuring every field of a settings object a constructor
-receives is actually read somewhere in ``__init__``.
-
-Passing a validated settings object straight into ``Agent``/``World``
-(instead of translating it into a fixed set of flat kwargs first) removes a
-whole layer of code, but it also removes a safety net that layer had almost
-by accident: a settings field nobody wired up used to surface as a loud
-``TypeError`` (an unrecognized kwarg); now it just sits on the object,
-unread, with no error anywhere. ``FieldTracker`` restores that guarantee
-directly -- wrap the settings object, use it exactly as you would the real
-thing, then call ``assert_fully_consumed()`` once construction is done.
+"""Small internal utilities shared across simlab's own modules (config.py,
+agent.py, world.py) that can't live in any one of them without creating a
+circular import or an unwanted dependency direction between them.
 """
 
 from __future__ import annotations
 
+import copy
 from functools import cache
 from typing import Any
 
 from pydantic import BaseModel
+
+
+def deep_merge(base: dict, override: dict) -> dict:
+    """Recursively merge ``override`` into a copy of ``base``.
+
+    Deep-copies ``base`` first so that multiple merges sharing the same
+    ``base`` (e.g. every profile merging against the same resolved
+    ``agent.defaults``) never share a nested dict object -- mutating one
+    profile's merged settings must never affect another's.
+    """
+    merged = copy.deepcopy(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
 
 
 @cache
@@ -54,6 +64,16 @@ class FieldTracker:
     not by ``Agent``). Checking completeness against the object's runtime
     type would flag those as false positives; checking against the
     constructor's own declared type doesn't.
+
+    Passing a validated settings object straight into ``Agent``/``World``
+    (instead of translating it into a fixed set of flat kwargs first)
+    removes a whole layer of code, but it also removes a safety net that
+    layer had almost by accident: a settings field nobody wired up used to
+    surface as a loud ``TypeError`` (an unrecognized kwarg); now it just
+    sits on the object, unread, with no error anywhere. ``FieldTracker``
+    restores that guarantee directly -- wrap the settings object, use it
+    exactly as you would the real thing, then call
+    ``assert_fully_consumed()`` once construction is done.
     """
 
     def __init__(

@@ -3,8 +3,7 @@ from __future__ import annotations
 import random
 from collections import defaultdict
 
-from simlab._merge import deep_merge
-from simlab._settings_tracking import FieldTracker
+from simlab._internal import FieldTracker, deep_merge
 from simlab.agent import Agent
 from simlab.config_schema import WorldSection
 from simlab.kernel_types import (

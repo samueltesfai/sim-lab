@@ -4,8 +4,7 @@ import random
 from collections import defaultdict
 from typing import TYPE_CHECKING
 
-from simlab._merge import deep_merge
-from simlab._settings_tracking import FieldTracker
+from simlab._internal import FieldTracker, deep_merge
 from simlab.config_schema import AgentSettings
 from simlab.kernel_types import (
     Action,
