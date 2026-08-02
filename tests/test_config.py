@@ -729,6 +729,20 @@ def _config(profiles: list[dict]) -> dict:
     }
 
 
+def test_validate_config_world_noise_entirely_omitted():
+    """world.noise itself is optional -- omitting the whole block (not just
+    individual keys within it) must still default every channel to 0.0,
+    not crash with a raw KeyError. _check_structure already tolerated a
+    missing noise key, but _materialize_world_settings still indexed it
+    with cfg["world"]["noise"] instead of .get(...)."""
+    cfg = _config([{"name": "default", "count": 1}])
+    del cfg["world"]["noise"]
+
+    resolved = validate_config(cfg)
+
+    assert resolved.world.noise == {"OBSERVE": 0.0, "HEAR": 0.0, "VERIFY": 0.0}
+
+
 def test_validate_config_rejects_non_integer_rng_seed():
     """A non-integral seed (e.g. 1.9) would silently seed the world's RNG
     with a different stream than the int world_seed later recorded in run

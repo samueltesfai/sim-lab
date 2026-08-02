@@ -257,7 +257,7 @@ def _materialize_world_settings(cfg: dict) -> dict:
     return {
         "rng_seed": world_cfg["rng_seed"],
         "truths": dict(world_cfg["truths"]),
-        "noise": {**DEFAULT_NOISE, **world_cfg["noise"]},
+        "noise": {**DEFAULT_NOISE, **world_cfg.get("noise", {})},
         "observation": {
             "private_event_rate": world_cfg["observation"]["private_event_rate"],
             "global_event_rate": world_cfg["observation"]["global_event_rate"],
