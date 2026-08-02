@@ -1,3 +1,4 @@
+import copy
 import os
 
 import yaml
@@ -20,26 +21,92 @@ def load_config(path: str) -> dict:
     return cfg
 
 
+def _check_structure(cfg: dict) -> None:
+    """Check ``cfg`` has the container shapes ``_materialize_agent_profiles``/
+    ``_materialize_world_settings`` need to safely index into it -- nothing
+    more. Full type/range/unknown-key checking happens afterward, against
+    the *merged* result (see ``validate_config``), so this only needs to
+    prevent a raw ``KeyError``/``TypeError`` during that merge.
+
+    :param cfg: The loaded configuration
+    :type cfg: dict
+    :raises ValueError: if a required key is missing or has the wrong
+        container type
+    """
+    if not isinstance(cfg, dict) or "world" not in cfg or "agent" not in cfg:
+        raise ValueError("config must have 'world' and 'agent' top-level keys")
+
+    world = cfg["world"]
+    if not isinstance(world, dict):
+        raise ValueError("world must be a mapping")
+    for key in ("rng_seed", "truths", "observation"):
+        if key not in world:
+            raise ValueError(f"world.{key} is required")
+    for key in ("truths", "observation"):
+        if not isinstance(world[key], dict):
+            raise ValueError(f"world.{key} must be a mapping")
+    if not isinstance(world.get("noise", {}), dict):
+        raise ValueError("world.noise must be a mapping")
+
+    agent = cfg["agent"]
+    if (
+        not isinstance(agent, dict)
+        or "defaults" not in agent
+        or "profiles" not in agent
+    ):
+        raise ValueError("agent.defaults and agent.profiles are required")
+    if not isinstance(agent["defaults"], dict):
+        raise ValueError("agent.defaults must be a mapping")
+    profiles = agent["profiles"]
+    if not isinstance(profiles, list) or not profiles:
+        raise ValueError("agent.profiles must be a non-empty list")
+    for profile in profiles:
+        if (
+            not isinstance(profile, dict)
+            or "name" not in profile
+            or "count" not in profile
+        ):
+            raise ValueError("each agent profile must define name and count")
+
+
 def validate_config(cfg: dict) -> None:
     """Validate configuration structure, types, and ranges.
 
-    Delegates to ``config_schema.SimConfig``. The validated model is
-    discarded -- everything downstream keeps consuming the original plain
-    ``cfg`` dict unchanged.
+    First checks ``cfg`` has the container shapes needed to merge safely
+    (``_check_structure``), then merges defaults in (``materialize_config``)
+    and validates the *merged* result against ``config_schema.SimConfig``.
+    Validating after merging, rather than before, means every value --
+    whether it came from user YAML or from a built-in default -- is
+    something explicitly present in the dict being validated, so a bad
+    built-in default can't slip through unnoticed the way it could if
+    validation ran on the raw, possibly-partial config.
+
+    The validated model is discarded; everything downstream keeps consuming
+    the original plain ``cfg`` dict (and re-merges it) unchanged. Re-running
+    the merge is cheap (a handful of small dict operations); it's the
+    redundant work worth accepting here, unlike re-running full validation
+    for no correctness benefit.
 
     :param cfg: The loaded configuration
     :type cfg: dict
     :raises ValueError: if ``cfg`` doesn't match the expected schema
     """
+    _check_structure(cfg)
     try:
-        SimConfig.model_validate(cfg)
+        SimConfig.model_validate(materialize_config(cfg))
     except ValidationError as e:
         raise ValueError(str(e)) from e
 
 
 def _deep_merge(base: dict, override: dict) -> dict:
-    """Recursively merge ``override`` into a copy of ``base`` (one level deep dicts)."""
-    merged = {k: (dict(v) if isinstance(v, dict) else v) for k, v in base.items()}
+    """Recursively merge ``override`` into a copy of ``base``.
+
+    Deep-copies ``base`` first so that multiple merges sharing the same
+    ``base`` (e.g. every profile merging against the same resolved
+    ``agent.defaults``) never share a nested dict object -- mutating one
+    profile's merged settings must never affect another's.
+    """
+    merged = copy.deepcopy(base)
     for key, value in override.items():
         if isinstance(value, dict) and isinstance(merged.get(key), dict):
             merged[key] = _deep_merge(merged[key], value)
@@ -268,7 +335,7 @@ def materialize_scenario(cfg: dict) -> dict:
     return {"world": world, "agent": full["agent"]}
 
 
-def build_world(cfg: dict) -> World:
+def world_from_config(cfg: dict) -> World:
     """Build a World instance from a validated configuration."""
     world_settings = _materialize_world_settings(cfg)
     world_kwargs = _settings_to_world_kwargs(world_settings)

@@ -13,7 +13,7 @@ from simlab.config import (
     load_config,
     validate_config,
     expand_agent_specs,
-    build_world,
+    world_from_config,
 )
 from simlab.config_schema import AgentSettings
 from simlab.kernel_types import ActionType, MemoryType, Snapshot
@@ -23,7 +23,7 @@ from simlab.world import World
 def _build_valid_world(config_dict: dict) -> World:
     """Build a World from a config dict after validating it."""
     validate_config(config_dict)
-    return build_world(config_dict)
+    return world_from_config(config_dict)
 
 
 def create_test_config_file(config_dict: dict) -> str:
@@ -241,7 +241,7 @@ def test_validate_config_invalid_observation_attention():
         },
     }
 
-    with pytest.raises(ValueError, match=r"agent\.defaults\.observation\.attention"):
+    with pytest.raises(ValueError, match=r"agent\.profiles\.0\.observation\.attention"):
         validate_config(config_dict)
 
 
@@ -369,7 +369,7 @@ def test_validate_config_invalid_action_name():
     }
 
     with pytest.raises(
-        ValueError, match=r"agent\.defaults\.action_preference\.INVALID_ACTION"
+        ValueError, match=r"agent\.profiles\.0\.action_preference\.INVALID_ACTION"
     ):
         validate_config(config_dict)
 
@@ -455,7 +455,7 @@ def test_validate_config_rejects_unknown_learning_field():
         },
     }
 
-    with pytest.raises(ValueError, match=r"agent\.defaults\.learning\.ratee"):
+    with pytest.raises(ValueError, match=r"agent\.profiles\.0\.learning\.ratee"):
         validate_config(config_dict)
 
 
@@ -475,7 +475,7 @@ def test_validate_config_rejects_unknown_top_level_setting():
         },
     }
 
-    with pytest.raises(ValueError, match=r"agent\.defaults\.observaton"):
+    with pytest.raises(ValueError, match=r"agent\.profiles\.0\.observaton"):
         validate_config(config_dict)
 
 
@@ -687,7 +687,7 @@ def test_load_config_and_build_world_integration():
     try:
         # Load and build
         cfg = load_config(config_path)
-        world = build_world(cfg)
+        world = world_from_config(cfg)
 
         # Verify it works
         assert len(world.agents) == 2
@@ -816,7 +816,7 @@ def test_validate_config_rejects_bool_for_agent_attention():
     cfg = _config([{"name": "default", "count": 1}])
     cfg["agent"]["defaults"]["observation"] = {"attention": True}
 
-    with pytest.raises(ValueError, match=r"agent\.defaults\.observation\.attention"):
+    with pytest.raises(ValueError, match=r"agent\.profiles\.0\.observation\.attention"):
         validate_config(cfg)
 
 
@@ -824,7 +824,7 @@ def test_single_default_profile_builds():
     """A single 'default' profile builds the requested number of agents."""
     cfg = _config([{"name": "default", "count": 4}])
     validate_config(cfg)
-    world = build_world(cfg)
+    world = world_from_config(cfg)
 
     assert len(world.agents) == 4
     assert all(agent.profile_name == "default" for agent in world.agents)
@@ -888,7 +888,7 @@ def test_profile_counts_determine_total_agents():
     """Total agents is the sum of profile counts; no separate world total."""
     cfg = _config([{"name": "a", "count": 20}, {"name": "b", "count": 29}])
     validate_config(cfg)
-    world = build_world(cfg)
+    world = world_from_config(cfg)
     assert len(world.agents) == 49
     assert world.profile_counts == {"a": 20, "b": 29}
 
@@ -921,7 +921,9 @@ def test_missing_profiles_raises():
 def test_profile_missing_count_raises():
     """Each profile must define a count."""
     config_dict = _config([{"name": "default"}])
-    with pytest.raises(ValueError, match=r"agent\.profiles\.0\.count"):
+    with pytest.raises(
+        ValueError, match="each agent profile must define name and count"
+    ):
         validate_config(config_dict)
 
 
@@ -1011,7 +1013,7 @@ def test_validate_social_confidence_bound_invalid():
     for val in [-0.1, 1.1]:
         cfg = _social_config({"confidence_bound": val})
         with pytest.raises(
-            ValueError, match=r"agent\.defaults\.social\.confidence_bound"
+            ValueError, match=r"agent\.profiles\.0\.social\.confidence_bound"
         ):
             validate_config(cfg)
 
@@ -1028,7 +1030,7 @@ def test_validate_social_trust_update_rate_invalid():
     for val in [-0.01, 1.5]:
         cfg = _social_config({"trust_update_rate": val})
         with pytest.raises(
-            ValueError, match=r"agent\.defaults\.social\.trust_update_rate"
+            ValueError, match=r"agent\.profiles\.0\.social\.trust_update_rate"
         ):
             validate_config(cfg)
 
@@ -1044,7 +1046,7 @@ def test_validate_social_update_trust_on_rejection_invalid():
     """Non-boolean update_trust_on_rejection is rejected."""
     cfg = _social_config({"update_trust_on_rejection": "yes"})
     with pytest.raises(
-        ValueError, match=r"agent\.defaults\.social\.update_trust_on_rejection"
+        ValueError, match=r"agent\.profiles\.0\.social\.update_trust_on_rejection"
     ):
         validate_config(cfg)
 
@@ -1128,7 +1130,7 @@ def test_social_params_absent_uses_agent_defaults():
     """When social section is omitted, Agent defaults (1.0 / 0.0 / True) apply."""
     cfg = _config([{"name": "default", "count": 2}])
     validate_config(cfg)
-    world = build_world(cfg)
+    world = world_from_config(cfg)
 
     for agent in world.agents:
         assert agent.social_confidence_bound == pytest.approx(1.0)

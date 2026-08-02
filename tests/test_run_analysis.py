@@ -1,6 +1,6 @@
 import pytest
 
-from simlab.config import build_world, materialize_config
+from simlab.config import world_from_config, materialize_config
 from simlab.run_analysis import (
     compute_run_summary,
     extract_scenario_features,
@@ -30,7 +30,7 @@ def _build_scenario(
         },
         "agent": {"defaults": {}, "profiles": profiles},
     }
-    return build_world(cfg), materialize_config(cfg)
+    return world_from_config(cfg), materialize_config(cfg)
 
 
 # ---------------------------------------------------------------------------

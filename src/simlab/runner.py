@@ -9,7 +9,7 @@ from time import perf_counter
 from typing import Any
 
 from simlab.config import (
-    build_world,
+    world_from_config,
     load_config,
     materialize_config,
     materialize_scenario,
@@ -135,7 +135,7 @@ def execute_run(request: RunRequest) -> RunResult:
     :rtype: RunResult
     """
     cfg = load_config(request.config_path)
-    world = build_world(cfg)
+    world = world_from_config(cfg)
     resolved_config: dict[str, Any] = materialize_config(cfg)
     scenario_fingerprint = _fingerprint(materialize_scenario(cfg))
     world_seed = cfg["world"]["rng_seed"]
