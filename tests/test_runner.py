@@ -275,6 +275,39 @@ def test_execute_run_scenario_fingerprint_normalizes_integral_floats():
         os.unlink(float_path)
 
 
+def test_execute_run_run_spec_fingerprint_distinguishes_large_seeds():
+    """Seeds above 2**53 lose exact integer precision if ever converted to
+    float; two distinct large seeds must still produce distinct
+    run_spec_fingerprints (fingerprint normalization must not blanket-cast
+    ints to float)."""
+    seed_a = 9007199254740992
+    seed_b = 9007199254740993
+    assert float(seed_a) == float(seed_b)  # precondition: floats collide
+
+    config_a = {**CONFIG_DICT, "world": {**CONFIG_DICT["world"], "rng_seed": seed_a}}
+    config_b = {**CONFIG_DICT, "world": {**CONFIG_DICT["world"], "rng_seed": seed_b}}
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+        yaml.dump(config_a, f)
+        path_a = f.name
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+        yaml.dump(config_b, f)
+        path_b = f.name
+
+    try:
+        result_a = execute_run(RunRequest(config_path=path_a, steps=1))
+        result_b = execute_run(RunRequest(config_path=path_b, steps=1))
+
+        assert result_a.metadata.world_seed == seed_a
+        assert result_b.metadata.world_seed == seed_b
+        assert (
+            result_a.metadata.run_spec_fingerprint
+            != result_b.metadata.run_spec_fingerprint
+        )
+    finally:
+        os.unlink(path_a)
+        os.unlink(path_b)
+
+
 def test_execute_run_scenario_fingerprint_same_for_explicit_and_omitted_defaults(
     config_path,
 ):

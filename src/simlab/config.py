@@ -149,6 +149,10 @@ def _validate_profile_count(count, name: str) -> None:
 
 def validate_config(cfg: dict) -> None:
     """Perform light validation on configuration."""
+    rng_seed = cfg["world"].get("rng_seed")
+    if rng_seed is None or not isinstance(rng_seed, int) or isinstance(rng_seed, bool):
+        raise ValueError("world.rng_seed must be an integer")
+
     private_rate = cfg["world"]["observation"]["private_event_rate"]
     if not 0 <= private_rate <= 1:
         raise ValueError("world.observation.private_event_rate must be in [0, 1]")
@@ -180,10 +184,14 @@ def validate_config(cfg: dict) -> None:
     if not cfg["agent"]["profiles"]:
         raise ValueError("agent.profiles must contain at least one profile")
 
+    seen_profile_names: set = set()
     for profile in cfg["agent"]["profiles"]:
         if "name" not in profile:
             raise ValueError("each agent profile must define name")
         name = profile["name"]
+        if name in seen_profile_names:
+            raise ValueError(f"duplicate agent profile name: {name!r}")
+        seen_profile_names.add(name)
         _validate_profile_count(profile.get("count"), name)
         _validate_agent_settings(
             profile,

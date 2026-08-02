@@ -61,20 +61,28 @@ class RunResult:
 
 def _normalize_for_fingerprint(data: Any) -> Any:
     """Recursively normalize numbers so behaviorally-equivalent
-    representations hash identically: ``-0.0`` becomes ``0.0``, and ints are
-    unified with floats (e.g. YAML's ``1`` and ``1.0``).
+    representations hash identically: ``-0.0`` becomes ``0.0``, and an
+    integral float (e.g. YAML's ``1.0``) is unified with the plain int it
+    equals (``1``).
 
     ``json.dumps(-0.0) != json.dumps(0.0)`` even though ``-0.0 == 0.0`` in
     every arithmetic sense the simulation cares about, and likewise
     ``json.dumps(1) != json.dumps(1.0)`` even though config validation
     accepts either for a float-valued field -- both would otherwise give
-    behaviorally identical scenarios different fingerprints. Bools are left
-    alone despite being an ``int`` subclass, since ``True``/``False`` are a
-    distinct JSON type from numbers.
+    behaviorally identical scenarios different fingerprints.
+
+    This only ever converts float -> int, never int -> float: a blanket
+    ``float(x)`` on every int would silently collapse distinct large seeds
+    that exceed float64's 2**53 exact-integer range (e.g.
+    ``9007199254740992`` and ``...993`` both become the same float), which
+    would corrupt ``run_spec_fingerprint`` for exactly the field it exists
+    to distinguish. Genuine ints are therefore left untouched. Bools are
+    left alone despite being an ``int`` subclass, since ``True``/``False``
+    are a distinct JSON type from numbers.
 
     :param data: A JSON-safe value (dict, list, or scalar)
     :type data: Any
-    :return: The same structure with every number in canonical float form
+    :return: The same structure with every number in canonical form
     :rtype: Any
     """
     if isinstance(data, dict):
@@ -83,8 +91,9 @@ def _normalize_for_fingerprint(data: Any) -> Any:
         return [_normalize_for_fingerprint(v) for v in data]
     if isinstance(data, bool):
         return data
-    if isinstance(data, (int, float)):
-        return float(data) + 0.0
+    if isinstance(data, float):
+        normalized = data + 0.0
+        return int(normalized) if normalized.is_integer() else normalized
     return data
 
 
@@ -129,7 +138,7 @@ def execute_run(request: RunRequest) -> RunResult:
     world = build_world(cfg)
     resolved_config: dict[str, Any] = materialize_config(cfg)
     scenario_fingerprint = _fingerprint(materialize_scenario(cfg))
-    world_seed = int(cfg["world"]["rng_seed"])
+    world_seed = cfg["world"]["rng_seed"]
     run_spec_fingerprint = _fingerprint(
         {
             "scenario_fingerprint": scenario_fingerprint,

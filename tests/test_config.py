@@ -81,6 +81,7 @@ def test_validate_config_success():
     """Test config validation with valid config."""
     config_dict = {
         "world": {
+            "rng_seed": 0,
             "observation": {"private_event_rate": 0.2, "global_event_rate": 0.0},
             "truths": {0: True, 1: False},
             "noise": {"OBSERVE": 0.0, "HEAR": 0.1, "VERIFY": 0.05},
@@ -112,6 +113,7 @@ def test_validate_config_invalid_profile_count():
     """Test config validation with a non-positive profile count."""
     config_dict = {
         "world": {
+            "rng_seed": 0,
             "observation": {"private_event_rate": 0.2, "global_event_rate": 0.0},
             "truths": {0: True},
             "noise": {"OBSERVE": 0.0, "HEAR": 0.1, "VERIFY": 0.05},
@@ -145,6 +147,7 @@ def test_validate_config_non_integral_profile_count():
     """A non-integral count is rejected rather than silently floored."""
     config_dict = {
         "world": {
+            "rng_seed": 0,
             "observation": {"private_event_rate": 0.1, "global_event_rate": 0.0},
             "truths": {0: True},
             "noise": {"OBSERVE": 0.0, "HEAR": 0.1, "VERIFY": 0.05},
@@ -165,6 +168,7 @@ def test_validate_config_invalid_observation_rate():
     """Test config validation with invalid observation event rate."""
     config_dict = {
         "world": {
+            "rng_seed": 0,
             "observation": {
                 "private_event_rate": 1.5,
                 "global_event_rate": 0.0,
@@ -202,6 +206,7 @@ def test_validate_config_invalid_global_event_rate():
     """Test config validation with out-of-range global event rate."""
     config_dict = {
         "world": {
+            "rng_seed": 0,
             "observation": {
                 "private_event_rate": 0.1,
                 "global_event_rate": 1.5,  # Invalid: must be in [0, 1]
@@ -226,6 +231,7 @@ def test_validate_config_invalid_observation_attention():
     """Test config validation with out-of-range observation attention."""
     config_dict = {
         "world": {
+            "rng_seed": 0,
             "observation": {"private_event_rate": 0.1, "global_event_rate": 0.0},
             "truths": {0: True},
             "noise": {"OBSERVE": 0.0, "HEAR": 0.1, "VERIFY": 0.05},
@@ -249,6 +255,7 @@ def test_validate_config_invalid_observation_bias():
     """Test config validation with out-of-range observation bias on a profile."""
     config_dict = {
         "world": {
+            "rng_seed": 0,
             "observation": {"private_event_rate": 0.1, "global_event_rate": 0.0},
             "truths": {0: True},
             "noise": {"OBSERVE": 0.0, "HEAR": 0.1, "VERIFY": 0.05},
@@ -276,6 +283,7 @@ def test_validate_config_negative_noise():
     """Test config validation with negative noise values."""
     config_dict = {
         "world": {
+            "rng_seed": 0,
             "observation": {"private_event_rate": 0.2, "global_event_rate": 0.0},
             "truths": {0: True},
             "noise": {
@@ -311,6 +319,7 @@ def test_validate_config_invalid_action_preference():
     """Test config validation with invalid action preference."""
     config_dict = {
         "world": {
+            "rng_seed": 0,
             "observation": {"private_event_rate": 0.2, "global_event_rate": 0.0},
             "truths": {0: True},
             "noise": {"OBSERVE": 0.0, "HEAR": 0.1, "VERIFY": 0.05},
@@ -345,6 +354,7 @@ def test_validate_config_invalid_action_name():
     """Test config validation with invalid action name."""
     config_dict = {
         "world": {
+            "rng_seed": 0,
             "observation": {"private_event_rate": 0.2, "global_event_rate": 0.0},
             "truths": {0: True},
             "noise": {"OBSERVE": 0.0, "HEAR": 0.1, "VERIFY": 0.05},
@@ -376,6 +386,7 @@ def test_validate_config_negative_action_cost():
     """Test config validation with negative action cost."""
     config_dict = {
         "world": {
+            "rng_seed": 0,
             "observation": {"private_event_rate": 0.2, "global_event_rate": 0.0},
             "truths": {0: True},
             "noise": {"OBSERVE": 0.0, "HEAR": 0.1, "VERIFY": 0.05},
@@ -409,6 +420,7 @@ def test_validate_config_invalid_truths():
     """Test config validation with invalid truth values."""
     config_dict = {
         "world": {
+            "rng_seed": 0,
             "observation": {"private_event_rate": 0.2, "global_event_rate": 0.0},
             "truths": {0: "not_boolean", 1: False},  # Invalid: not boolean
             "noise": {"OBSERVE": 0.0, "HEAR": 0.1, "VERIFY": 0.05},
@@ -442,6 +454,7 @@ def test_validate_config_rejects_unknown_learning_field():
     while still polluting resolved_config/the scenario fingerprint."""
     config_dict = {
         "world": {
+            "rng_seed": 0,
             "observation": {"private_event_rate": 0.1, "global_event_rate": 0.0},
             "truths": {0: True},
             "noise": {"OBSERVE": 0.0, "HEAR": 0.0, "VERIFY": 0.0},
@@ -463,6 +476,7 @@ def test_validate_config_rejects_unknown_top_level_setting():
     name) is rejected rather than silently ignored."""
     config_dict = {
         "world": {
+            "rng_seed": 0,
             "observation": {"private_event_rate": 0.1, "global_event_rate": 0.0},
             "truths": {0: True},
             "noise": {"OBSERVE": 0.0, "HEAR": 0.0, "VERIFY": 0.0},
@@ -484,6 +498,7 @@ def test_validate_config_rejects_unknown_setting_on_profile():
     just agent.defaults."""
     config_dict = {
         "world": {
+            "rng_seed": 0,
             "observation": {"private_event_rate": 0.1, "global_event_rate": 0.0},
             "truths": {0: True},
             "noise": {"OBSERVE": 0.0, "HEAR": 0.0, "VERIFY": 0.0},
@@ -728,6 +743,49 @@ def _config(profiles: list[dict]) -> dict:
             "profiles": profiles,
         },
     }
+
+
+def test_validate_config_rejects_non_integer_rng_seed():
+    """A non-integral seed (e.g. 1.9) would silently seed the world's RNG
+    with a different stream than the int world_seed later recorded in run
+    metadata -- reject it instead of letting it through unnoticed."""
+    cfg = _config([{"name": "default", "count": 1}])
+    cfg["world"]["rng_seed"] = 1.9
+
+    with pytest.raises(ValueError, match="world.rng_seed must be an integer"):
+        validate_config(cfg)
+
+
+def test_validate_config_rejects_bool_rng_seed():
+    """bool is an int subclass; True/False are not meaningful seeds."""
+    cfg = _config([{"name": "default", "count": 1}])
+    cfg["world"]["rng_seed"] = True
+
+    with pytest.raises(ValueError, match="world.rng_seed must be an integer"):
+        validate_config(cfg)
+
+
+def test_validate_config_rejects_missing_rng_seed():
+    cfg = _config([{"name": "default", "count": 1}])
+    del cfg["world"]["rng_seed"]
+
+    with pytest.raises(ValueError, match="world.rng_seed must be an integer"):
+        validate_config(cfg)
+
+
+def test_validate_config_rejects_duplicate_profile_names():
+    """Two profiles sharing a name would silently overwrite each other's
+    entry in profile_counts/scenario features (e.g. profile_count.<name>),
+    making the reported population inconsistent with num_agents."""
+    cfg = _config(
+        [
+            {"name": "dup", "count": 2},
+            {"name": "dup", "count": 3},
+        ]
+    )
+
+    with pytest.raises(ValueError, match="duplicate agent profile name: 'dup'"):
+        validate_config(cfg)
 
 
 def test_single_default_profile_builds():
