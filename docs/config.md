@@ -1,17 +1,5 @@
 # Configuration Reference
 
-## Table of Contents
-
-- [Overview](#overview)
-- [Parameter Index](#parameter-index)
-  - [`world`](#world)
-  - [`agent`](#agent)
-- [Minimal Config](#minimal-config)
-- [Validation Rules](#validation-rules)
-- [Examples](#examples)
-  - [Homogeneous Population](#homogeneous-population)
-  - [Heterogeneous Population](#heterogeneous-population)
-
 ## Overview
 
 Simulation scenarios are defined as YAML files and loaded through `simlab.config`.
@@ -31,6 +19,16 @@ The canonical config format uses exactly three top-level pieces:
 - `agent.defaults`
 - `agent.profiles`
 
+Each profile inherits `agent.defaults` and may override any subset of it.
+Overrides are **deep-merged** onto the defaults, not substituted wholesale:
+
+- nested maps (e.g. `observation`, `learning`) merge key-by-key, so a profile
+  can override `observation.attention` without restating `observation.bias`
+- scalar values replace the default value
+- `action_preference` / `action_cost` merge per action name
+
+The homogeneous case is simply a single profile that adds no overrides.
+
 Configs are loaded with `load_config(path)`, which parses the YAML and runs
 `validate_config`. `build_world(cfg)` then expands `agent.defaults` +
 `agent.profiles` into concrete `Agent` instances and constructs the `World`.
@@ -47,32 +45,11 @@ trust dynamics, the observation/verification/hear channels), see
 [`docs/model.md`](model.md). This document defines each parameter
 individually — its type, range, and default — for writing a scenario.
 
-## Parameter Index
+## Config Structure
 
-- [`world`](#world)
-  - [`world.rng_seed`](#worldrng_seed)
-  - [`world.truths`](#worldtruths)
-  - [`world.noise`](#worldnoise)
-  - [`world.observation`](#worldobservation)
-    - [`private_event_rate`](#private_event_rate)
-    - [`global_event_rate`](#global_event_rate)
-- [`agent`](#agent)
-  - [`agent.defaults`](#agentdefaults)
-    - [`observation.attention`](#observationattention)
-    - [`observation.bias`](#observationbias)
-    - [`trust.default`](#trustdefault)
-    - [`social.confidence_bound`](#socialconfidence_bound)
-    - [`social.trust_update_rate`](#socialtrust_update_rate)
-    - [`social.update_trust_on_rejection`](#socialupdate_trust_on_rejection)
-    - [`learning.rate`](#learningrate)
-    - [`learning.observe_weight`](#learningobserve_weight)
-    - [`learning.hear_weight`](#learninghear_weight)
-    - [`learning.verify_weight`](#learningverify_weight)
-    - [`action_preference`](#action_preference)
-    - [`action_cost`](#action_cost)
-  - [`agent.profiles`](#agentprofiles)
-    - [`name`](#name)
-    - [`count`](#count)
+Every field, with its type. See
+[`docs/config_reference.md`](config_reference.md) for full field-by-field
+definitions.
 
 ```yaml
 world:
@@ -84,251 +61,27 @@ world:
     global_event_rate: <float>
 
 agent:
-  defaults: { <agent settings> }
+  defaults:
+    observation: { attention: <float>, bias: <float> }
+    trust: { default: <float> }
+    social:
+      confidence_bound: <float>
+      trust_update_rate: <float>
+      update_trust_on_rejection: <bool>
+    learning:
+      rate: <float>
+      observe_weight: <float>
+      hear_weight: <float>
+      verify_weight: <float>
+    action_preference: { IDLE: <float>, VERIFY: <float>, COMMUNICATE: <float>, BROADCAST: <float> }
+    action_cost: { IDLE: <float>, VERIFY: <float>, COMMUNICATE: <float>, BROADCAST: <float> }
   profiles:
     - name: <str>
       count: <int>
-      <agent settings overrides>
+      # any subset of the agent.defaults fields above, as overrides
 ```
 
 All of `world`, `agent.defaults`, and `agent.profiles` are required.
-
-<details>
-<summary>Click to expand the full parameter reference</summary>
-
-## `world`
-
-Describes the environment shared by all agents.
-
-### `world.rng_seed`
-
-Integer seed for the world's RNG. Controls network generation and world-side
-event/noise draws.
-
-Each agent is given its own derived seed of `rng_seed + agent_index + 1`, so a
-single `world.rng_seed` makes the entire run reproducible while still giving
-each agent an independent stream.
-
-### `world.truths`
-
-A mapping of `claim_id -> boolean` ground truth. Keys are integer claim IDs;
-values **must** be booleans.
-
-```yaml
-truths:
-  0: true
-  1: false
-```
-
-Internally a `true`/`false` truth is treated as `1.0`/`0.0` when generating
-truth-grounded evidence. The set of claim IDs here defines the claims that exist
-in the simulation.
-
-### `world.noise`
-
-Standard deviation of the Gaussian noise added to each evidence channel. Each
-key is optional and defaults to `0.0` if omitted; any value present must be
-non-negative.
-
-| Key       | Applies to                          |
-| --------- | ----------------------------------- |
-| `OBSERVE` | observation event evidence          |
-| `VERIFY`  | verification evidence               |
-| `HEAR`    | social (heard) evidence             |
-
-```yaml
-noise:
-  OBSERVE: 0.1
-  HEAR: 0.15
-  VERIFY: 0.05
-```
-
-Observation noise is applied once, by the world, when an event is generated;
-agents do not add a second perceptual noise term (they apply only a systematic
-`observation.bias`). See the Observation channel in [`docs/model.md`](model.md).
-
-### `world.observation`
-
-Controls how often the world emits passive observation events.
-
-#### `private_event_rate`
-
-Required float in `[0, 1]`. The **per-agent, per-tick** probability that the
-world emits a private observation event visible only to that agent. With `N`
-agents the expected number of private events per tick is `N * private_event_rate`.
-
-#### `global_event_rate`
-
-Required float in `[0, 1]`. The **per-tick** probability that the world emits a
-single global observation event visible to *every* agent. Set to `0.0` to
-disable shared events.
-
-```yaml
-observation:
-  private_event_rate: 0.1
-  global_event_rate: 0.05
-```
-
-Visibility is not the same as perception: a visible agent still only forms a
-memory if it notices the event (governed by its `observation.attention`).
-
-## `agent`
-
-Describes the agent population. Requires `defaults` and `profiles`.
-
-### `agent.defaults`
-
-Baseline parameters shared by every agent. Each profile inherits these and may
-override any subset (see [deep-merge behavior](#profile-overrides-and-deep-merge)).
-
-Every field is optional; anything omitted uses the built-in `Agent` default
-shown below.
-
-#### `observation.attention`
-
-Float in `[0, 1]`. Probability that the agent notices an observation event it is
-visible to. Default `1.0`.
-
-#### `observation.bias`
-
-Float in `[-1, 1]`. Systematic perceptual shift applied to noticed observation
-evidence (`encoded = clamp(evidence + bias)`). Default `0.0`. Realistic configs
-use small values like `-0.1`, `0.0`, or `0.1`.
-
-#### `trust.default`
-
-Float. Trust assigned to otherwise-unseen source agents; modulates the weight of
-heard evidence. Default `0.5`.
-
-#### `social.confidence_bound`
-
-Float in `[0, 1]`. Maximum distance (`|heard evidence - current belief|`)
-at which a `HEAR` memory is still accepted for belief updating. Heard
-evidence further than this from the agent's current belief is treated as
-implausible and contributes an effective learning rate of `0.0` for that
-memory. Default `1.0` (no bound — all heard evidence is accepted).
-
-#### `social.trust_update_rate`
-
-Float in `[0, 1]`. Rate at which trust in a `HEAR` memory's source is
-adjusted toward the agent's observed agreement with that source
-(`1 - |heard evidence - belief before update|`), each time a `HEAR` memory
-is processed. `0.0` (the default) disables dynamic trust updates, leaving
-trust fixed at `trust.default` (or its per-source value) for the whole run.
-
-#### `social.update_trust_on_rejection`
-
-Boolean. Whether trust toward a source is still updated when its `HEAR`
-memory was rejected by `social.confidence_bound`. Default `true`. Set to
-`false` to only adjust trust from accepted (in-bound) heard evidence. No
-effect when `social.trust_update_rate` is `0.0`.
-
-#### `learning.rate`
-
-Float. Global plasticity — the base learning rate applied to all belief updates
-before channel weights. Default `0.1`.
-
-#### `learning.observe_weight`
-
-Float. Channel weight for `OBSERVE` memories. Default `0.6`.
-
-#### `learning.hear_weight`
-
-Float. Channel weight for `HEAR` memories (further multiplied by trust in the
-source). Default `0.3`.
-
-#### `learning.verify_weight`
-
-Float. Channel weight for `VERIFY` memories. Default `1.0`.
-
-#### `action_preference`
-
-Mapping of action name -> preference in `[0, 1]`. Valid action names are
-`IDLE`, `VERIFY`, `COMMUNICATE`, `BROADCAST`. Defaults:
-
-```yaml
-action_preference:
-  IDLE: 0.0
-  VERIFY: 0.9
-  COMMUNICATE: 0.7
-  BROADCAST: 0.5
-```
-
-#### `action_cost`
-
-Mapping of action name -> non-negative cost. Same valid action names. Defaults:
-
-```yaml
-action_cost:
-  IDLE: 0.0
-  VERIFY: 0.35
-  COMMUNICATE: 0.15
-  BROADCAST: 0.30
-```
-
-A partial `action_preference` / `action_cost` map is merged onto the built-in
-defaults, so you only need to list the actions you want to change.
-
-### `agent.profiles`
-
-A non-empty list of concrete subpopulations. Each entry is built from
-`agent.defaults` plus the profile's own overrides.
-
-#### `name`
-
-Required string. Identifies the profile. Reported back via
-`World.profile_counts` for verifying expansion and per-profile analysis.
-
-#### `count`
-
-Required integer greater than zero.
-
-The total number of agents in the simulation is the **sum of all profile
-counts**. There is no separate `world.num_agents` in the canonical config
-format.
-
-#### profile overrides and deep-merge
-
-Beyond `name` and `count`, a profile may include any subset of the agent
-settings (`observation`, `trust`, `social`, `learning`, `action_preference`,
-`action_cost`). These are **deep-merged** onto `agent.defaults`:
-
-- nested maps (e.g. `observation`, `learning`) merge key-by-key, so a profile
-  can override `observation.attention` without restating `observation.bias`
-- scalar values replace the default value
-- `action_preference` / `action_cost` merge per action name
-
-The homogeneous case is simply a single profile that adds no overrides.
-
-</details>
-
-## Minimal Config
-
-The smallest valid scenario: one true claim, no observation noise, and a single
-homogeneous profile.
-
-```yaml
-world:
-  rng_seed: 0
-  observation:
-    private_event_rate: 0.1
-    global_event_rate: 0.0
-  truths:
-    0: true
-  noise:
-    OBSERVE: 0.0
-    HEAR: 0.0
-    VERIFY: 0.0
-
-agent:
-  defaults: {}
-  profiles:
-    - name: default
-      count: 10
-```
-
-Any agent parameter omitted from `agent.defaults` falls back to the built-in
-`Agent` defaults documented under [`agent.defaults`](#agentdefaults).
 
 ## Validation Rules
 
@@ -355,7 +108,36 @@ Any agent parameter omitted from `agent.defaults` falls back to the built-in
 `observation`, `social`, `action_preference`, and `action_cost` rules apply to
 both `agent.defaults` and every profile node.
 
-## Examples 
+## Examples
+
+### Minimal Config
+
+The smallest valid scenario: one true claim, no observation noise, and a single
+homogeneous profile.
+
+```yaml
+world:
+  rng_seed: 0
+  observation:
+    private_event_rate: 0.1
+    global_event_rate: 0.0
+  truths:
+    0: true
+  noise:
+    OBSERVE: 0.0
+    HEAR: 0.0
+    VERIFY: 0.0
+
+agent:
+  defaults: {}
+  profiles:
+    - name: default
+      count: 10
+```
+
+Any agent parameter omitted from `agent.defaults` falls back to the built-in
+`Agent` defaults documented under
+[`agent.defaults`](config_reference.md#agentdefaults).
 
 ### Homogeneous Population
 

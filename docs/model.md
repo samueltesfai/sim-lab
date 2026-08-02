@@ -263,8 +263,8 @@ its dynamics:
   controls whether that drift still happens for memories rejected by the
   confidence bound.
 
-See [`docs/config.md`](config.md#socialconfidence_bound) for the exact
-schema and defaults.
+See [`docs/config_reference.md`](config_reference.md#socialconfidence_bound)
+for the exact schema and defaults.
 
 ### Network
 
