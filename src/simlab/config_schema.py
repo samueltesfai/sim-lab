@@ -49,7 +49,16 @@ ActionName = Literal["IDLE", "VERIFY", "COMMUNICATE", "BROADCAST"]
 
 
 class _Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    """``allow_inf_nan=False`` rejects ``NaN``/``Infinity`` for every float
+    field model-wide -- otherwise a YAML value like ``.nan`` passes through
+    unconstrained fields silently, and even range-checked fields can't be
+    trusted to catch it: a validator written as ``value < 0`` never rejects
+    ``NaN`` (every comparison against ``NaN`` is ``False``), and whether a
+    given field happens to reject it becomes an accident of how its
+    validator is written rather than a deliberate guarantee.
+    """
+
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
 
 def _validate_preference_range(v: dict[str, float]) -> dict[str, float]:

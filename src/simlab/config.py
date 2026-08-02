@@ -15,6 +15,30 @@ from simlab.config_schema import (
 from simlab.world import World
 
 
+class _UniqueKeyLoader(yaml.SafeLoader):
+    """``yaml.SafeLoader`` that rejects a mapping with a repeated key.
+
+    Plain ``yaml.safe_load`` silently keeps only the last value for a
+    duplicated key (e.g. ``learning.rate`` listed twice, or the same claim
+    id under ``truths`` twice) -- the file then loads successfully into a
+    config that doesn't match what's visibly written, with no warning.
+    """
+
+    def construct_mapping(self, node, deep=False):
+        seen: set[object] = set()
+        for key_node, _ in node.value:
+            key = self.construct_object(key_node, deep=deep)
+            if key in seen:
+                raise yaml.constructor.ConstructorError(
+                    "while constructing a mapping",
+                    node.start_mark,
+                    f"found duplicate key: {key!r}",
+                    key_node.start_mark,
+                )
+            seen.add(key)
+        return super().construct_mapping(node, deep)
+
+
 def load_config(path: str) -> SimConfig:
     """Load, merge, and validate configuration from a YAML file.
 
@@ -29,7 +53,7 @@ def load_config(path: str) -> SimConfig:
         raise FileNotFoundError(f"Config file not found: {path}")
 
     with open(path, encoding="utf-8") as f:
-        cfg = yaml.safe_load(f)
+        cfg = yaml.load(f, Loader=_UniqueKeyLoader)
     return validate_config(cfg)
 
 

@@ -77,6 +77,37 @@ def test_load_config_file_not_found():
         load_config("non_existent_config.yaml")
 
 
+def test_load_config_rejects_duplicate_yaml_keys():
+    """A repeated mapping key (e.g. learning.rate listed twice) must be
+    rejected rather than silently keeping only the last value -- plain
+    yaml.safe_load would otherwise load a config that doesn't match what's
+    visibly written in the file, with no warning."""
+    text = """
+world:
+  rng_seed: 0
+  rng_seed: 1
+  observation:
+    private_event_rate: 0.1
+    global_event_rate: 0.0
+  truths:
+    0: true
+agent:
+  defaults: {}
+  profiles:
+    - name: default
+      count: 1
+"""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+        f.write(text)
+        config_path = f.name
+
+    try:
+        with pytest.raises(yaml.constructor.ConstructorError, match="duplicate key"):
+            load_config(config_path)
+    finally:
+        os.unlink(config_path)
+
+
 def test_validate_config_success():
     """Test config validation with valid config."""
     config_dict = {
@@ -837,6 +868,37 @@ def test_validate_config_rejects_bool_for_agent_attention():
     cfg["agent"]["defaults"]["observation"] = {"attention": True}
 
     with pytest.raises(ValueError, match=r"agent\.profiles\.0\.observation\.attention"):
+        validate_config(cfg)
+
+
+def test_validate_config_rejects_nan_on_unconstrained_field():
+    """trust.default has no Field(ge=, le=) range -- without
+    allow_inf_nan=False on the shared model config, a YAML `.nan` would pass
+    through it silently."""
+    cfg = _config([{"name": "default", "count": 1}])
+    cfg["agent"]["defaults"]["trust"] = {"default": float("nan")}
+
+    with pytest.raises(ValueError, match=r"agent\.profiles\.0\.trust\.default"):
+        validate_config(cfg)
+
+
+def test_validate_config_rejects_nan_on_custom_validated_field():
+    """action_cost's range check is `value < 0`, and `nan < 0` is always
+    False -- a NaN cost would silently pass that check without
+    allow_inf_nan=False guarding it at the model level instead."""
+    cfg = _config([{"name": "default", "count": 1}])
+    cfg["agent"]["defaults"]["action_cost"] = {"VERIFY": float("nan")}
+
+    with pytest.raises(ValueError, match=r"agent\.profiles\.0\.action_cost\.VERIFY"):
+        validate_config(cfg)
+
+
+def test_validate_config_rejects_infinity():
+    """Same guard, for +/-Infinity rather than NaN."""
+    cfg = _config([{"name": "default", "count": 1}])
+    cfg["world"]["observation"]["private_event_rate"] = float("inf")
+
+    with pytest.raises(ValueError, match=r"world\.observation\.private_event_rate"):
         validate_config(cfg)
 
 
