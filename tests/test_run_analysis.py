@@ -232,7 +232,7 @@ def test_graph_features_no_agents_does_not_crash():
     """A World with no agents is still directly constructible (unlike a
     SimConfig with no profiles, which the schema disallows -- agent.profiles
     has always required at least one entry)."""
-    world = World(agents=[], truths={0: True}, rng_seed=1)
+    world = World.from_dict([], {"truths": {0: True}, "rng_seed": 1})
 
     features = _graph_features(world)
 

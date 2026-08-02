@@ -9,7 +9,7 @@ from simlab.kernel_types import Action, ActionType, MemoryType, Snapshot
 
 def _build_world(n: int = 5) -> World:
     agents = [Agent(i, rng_seed=i) for i in range(n)]
-    return World(agents=agents, truths={0: True}, rng_seed=1)
+    return World.from_dict(agents, {"truths": {0: True}, "rng_seed": 1})
 
 
 # ---------------------------------------------------------------------------
@@ -20,13 +20,14 @@ def _build_world(n: int = 5) -> World:
 def test_world_initialization():
     """Test World initialization."""
     agents = [Agent(i, rng_seed=i) for i in range(3)]
-    world = World(
-        agents=agents,
-        truths={0: True, 1: False},
-        rng_seed=42,
-        noise={MemoryType.OBSERVE: 0.1, MemoryType.HEAR: 0.2},
-        private_event_rate=0.3,
-        global_event_rate=0.2,
+    world = World.from_dict(
+        agents,
+        {
+            "truths": {0: True, 1: False},
+            "rng_seed": 42,
+            "noise": {"OBSERVE": 0.1, "HEAR": 0.2},
+            "observation": {"private_event_rate": 0.3, "global_event_rate": 0.2},
+        },
     )
 
     assert len(world.agents) == 3
@@ -207,8 +208,18 @@ def test_world_observation_events():
 
 def test_attention_zero_forms_no_observation_memories():
     """With attention 0, events are still emitted but no memories are formed."""
-    agents = [Agent(i, rng_seed=i, observation_attention=0.0) for i in range(5)]
-    world = World(agents=agents, truths={0: True}, rng_seed=1, private_event_rate=1.0)
+    agents = [
+        Agent.from_dict(i, {"observation": {"attention": 0.0}}, rng_seed=i)
+        for i in range(5)
+    ]
+    world = World.from_dict(
+        agents,
+        {
+            "truths": {0: True},
+            "rng_seed": 1,
+            "observation": {"private_event_rate": 1.0},
+        },
+    )
 
     snapshot = world.step()
 
@@ -218,8 +229,18 @@ def test_attention_zero_forms_no_observation_memories():
 
 def test_attention_one_all_visible_agents_observe():
     """With rate and attention at 1.0, every agent forms an observation memory."""
-    agents = [Agent(i, rng_seed=i, observation_attention=1.0) for i in range(5)]
-    world = World(agents=agents, truths={0: True}, rng_seed=1, private_event_rate=1.0)
+    agents = [
+        Agent.from_dict(i, {"observation": {"attention": 1.0}}, rng_seed=i)
+        for i in range(5)
+    ]
+    world = World.from_dict(
+        agents,
+        {
+            "truths": {0: True},
+            "rng_seed": 1,
+            "observation": {"private_event_rate": 1.0},
+        },
+    )
 
     snapshot = world.step()
 
@@ -230,12 +251,13 @@ def test_attention_one_all_visible_agents_observe():
 def test_private_events_one_per_agent():
     """With private_event_rate 1.0 and no global events, one event per agent."""
     agents = [Agent(i, rng_seed=i) for i in range(5)]
-    world = World(
-        agents=agents,
-        truths={0: True},
-        rng_seed=1,
-        private_event_rate=1.0,
-        global_event_rate=0.0,
+    world = World.from_dict(
+        agents,
+        {
+            "truths": {0: True},
+            "rng_seed": 1,
+            "observation": {"private_event_rate": 1.0, "global_event_rate": 0.0},
+        },
     )
 
     snapshot = world.step()
@@ -247,12 +269,13 @@ def test_private_events_one_per_agent():
 def test_global_event_visible_to_all_agents():
     """With global_event_rate 1.0 and no private events, one all-visible event."""
     agents = [Agent(i, rng_seed=i) for i in range(5)]
-    world = World(
-        agents=agents,
-        truths={0: True},
-        rng_seed=1,
-        private_event_rate=0.0,
-        global_event_rate=1.0,
+    world = World.from_dict(
+        agents,
+        {
+            "truths": {0: True},
+            "rng_seed": 1,
+            "observation": {"private_event_rate": 0.0, "global_event_rate": 1.0},
+        },
     )
 
     snapshot = world.step()
@@ -263,13 +286,17 @@ def test_global_event_visible_to_all_agents():
 
 def test_global_event_attention_zero_forms_no_memories():
     """A global event is emitted but no memories form when attention is 0."""
-    agents = [Agent(i, rng_seed=i, observation_attention=0.0) for i in range(5)]
-    world = World(
-        agents=agents,
-        truths={0: True},
-        rng_seed=1,
-        private_event_rate=0.0,
-        global_event_rate=1.0,
+    agents = [
+        Agent.from_dict(i, {"observation": {"attention": 0.0}}, rng_seed=i)
+        for i in range(5)
+    ]
+    world = World.from_dict(
+        agents,
+        {
+            "truths": {0: True},
+            "rng_seed": 1,
+            "observation": {"private_event_rate": 0.0, "global_event_rate": 1.0},
+        },
     )
 
     snapshot = world.step()
@@ -280,13 +307,17 @@ def test_global_event_attention_zero_forms_no_memories():
 
 def test_global_event_attention_one_all_observe():
     """A global event noticed by every agent forms a memory for each."""
-    agents = [Agent(i, rng_seed=i, observation_attention=1.0) for i in range(5)]
-    world = World(
-        agents=agents,
-        truths={0: True},
-        rng_seed=1,
-        private_event_rate=0.0,
-        global_event_rate=1.0,
+    agents = [
+        Agent.from_dict(i, {"observation": {"attention": 1.0}}, rng_seed=i)
+        for i in range(5)
+    ]
+    world = World.from_dict(
+        agents,
+        {
+            "truths": {0: True},
+            "rng_seed": 1,
+            "observation": {"private_event_rate": 0.0, "global_event_rate": 1.0},
+        },
     )
 
     snapshot = world.step()
@@ -302,13 +333,17 @@ def test_private_and_global_events_both_observed_in_one_tick():
     rates and attention at 1.0, every agent forms two OBSERVE memories and
     appears twice in observed_ids in the same tick.
     """
-    agents = [Agent(i, rng_seed=i, observation_attention=1.0) for i in range(5)]
-    world = World(
-        agents=agents,
-        truths={0: True},
-        rng_seed=1,
-        private_event_rate=1.0,
-        global_event_rate=1.0,
+    agents = [
+        Agent.from_dict(i, {"observation": {"attention": 1.0}}, rng_seed=i)
+        for i in range(5)
+    ]
+    world = World.from_dict(
+        agents,
+        {
+            "truths": {0: True},
+            "rng_seed": 1,
+            "observation": {"private_event_rate": 1.0, "global_event_rate": 1.0},
+        },
     )
 
     snapshot = world.step()
@@ -489,14 +524,18 @@ def test_step_distinguishes_belief_and_trust_updates(mocker):
     diverge in the same tick.
     """
     sender = Agent(0, rng_seed=0)
-    receiver = Agent(
+    receiver = Agent.from_dict(
         1,
+        {
+            "social": {
+                "confidence_bound": 0.01,
+                "trust_update_rate": 0.5,
+                "update_trust_on_rejection": True,
+            }
+        },
         rng_seed=1,
-        social_confidence_bound=0.01,
-        social_trust_update_rate=0.5,
-        social_update_trust_on_rejection=True,
     )
-    world = World(agents=[sender, receiver], truths={0: True}, rng_seed=1)
+    world = World.from_dict([sender, receiver], {"truths": {0: True}, "rng_seed": 1})
     world.private_event_rate = 0.0
     world.global_event_rate = 0.0
     world.network[0] = [1]

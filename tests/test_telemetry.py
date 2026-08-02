@@ -11,7 +11,7 @@ from simlab.telemetry import Telemetry
 
 def _build_world(n: int = 5) -> World:
     agents = [Agent(i, rng_seed=i) for i in range(n)]
-    return World(agents=agents, truths={0: True}, rng_seed=1)
+    return World.from_dict(agents, {"truths": {0: True}, "rng_seed": 1})
 
 
 def test_record_populates_latest_and_history():
@@ -392,7 +392,7 @@ def test_fraction_confident_wrong_zero_when_beliefs_correct():
 def test_fraction_confident_wrong_one_when_all_confident_wrong():
     """1.0 when every agent is confidently wrong about a true claim."""
     agents = [Agent(i, rng_seed=i) for i in range(3)]
-    world = World(agents=agents, truths={0: True}, rng_seed=1)
+    world = World.from_dict(agents, {"truths": {0: True}, "rng_seed": 1})
     for agent in world.agents:
         agent.beliefs[0] = 0.1  # wrong side for a true claim, confidence=0.8
 

@@ -1,21 +1,15 @@
-import inspect
-
 import pytest
 import tempfile
 import os
 import yaml
 
-from simlab.agent import Agent
 from simlab.config import (
-    _materialize_world_settings,
-    _settings_to_agent_kwargs,
-    _settings_to_world_kwargs,
     load_config,
     validate_config,
     expand_agent_specs,
     world_from_config,
 )
-from simlab.config_schema import AgentSettings, SimConfig
+from simlab.config_schema import SimConfig
 from simlab.kernel_types import ActionType, MemoryType, Snapshot
 from simlab.world import World
 
@@ -743,6 +737,19 @@ def test_validate_config_world_noise_entirely_omitted():
     assert resolved.world.noise == {"OBSERVE": 0.0, "HEAR": 0.0, "VERIFY": 0.0}
 
 
+def test_validate_config_world_observation_entirely_omitted():
+    """world.observation itself is optional -- omitting the whole block
+    must default private_event_rate/global_event_rate to 0.1/0.0 (the same
+    values World.__init__ used to hardcode), not crash with a KeyError."""
+    cfg = _config([{"name": "default", "count": 1}])
+    del cfg["world"]["observation"]
+
+    resolved = validate_config(cfg)
+
+    assert resolved.world.observation.private_event_rate == 0.1
+    assert resolved.world.observation.global_event_rate == 0.0
+
+
 def test_validate_config_rejects_non_integer_rng_seed():
     """A non-integral seed (e.g. 1.9) would silently seed the world's RNG
     with a different stream than the int world_seed later recorded in run
@@ -941,54 +948,14 @@ def test_profile_missing_count_raises():
 
 
 def test_expand_agent_specs_single_profile():
-    """expand_agent_specs returns one spec per agent for a single default profile."""
+    """expand_agent_specs returns one resolved AgentProfile per agent for a
+    single default profile."""
     cfg = validate_config(_config([{"name": "default", "count": 3}]))
     specs = expand_agent_specs(cfg)
 
     assert len(specs) == 3
-    assert all(spec["profile_name"] == "default" for spec in specs)
-    assert all(ActionType.VERIFY in spec["action_preference"] for spec in specs)
-
-
-def test_settings_to_agent_kwargs_completeness():
-    """_settings_to_agent_kwargs walks a materialized settings dict
-    generically (deriving each field's Agent kwarg name via a naming
-    convention + a small exceptions table), so it can't silently drop a
-    field the way a fixed table could. This checks the other direction: its
-    output must be exactly the settings-derived kwargs Agent.__init__
-    accepts -- no missing kwarg (a field it doesn't know how to name) and
-    no extra one (a wrong guess, which would also fail loudly at
-    Agent(**kwargs) time)."""
-    settings = AgentSettings().model_dump()
-    kwargs = _settings_to_agent_kwargs(settings, "test-profile")
-
-    expected = set(inspect.signature(Agent.__init__).parameters) - {
-        "self",
-        "id",
-        "rng_seed",
-    }
-    assert set(kwargs) == expected
-
-
-def test_settings_to_world_kwargs_completeness():
-    """_settings_to_world_kwargs must produce exactly the settings-derived
-    kwargs World.__init__ accepts -- mirrors
-    test_settings_to_agent_kwargs_completeness for World's construction
-    path."""
-    world_settings = _materialize_world_settings(
-        {
-            "world": {
-                "rng_seed": 0,
-                "truths": {0: True},
-                "noise": {},
-                "observation": {"private_event_rate": 0.1, "global_event_rate": 0.0},
-            }
-        }
-    )
-    kwargs = _settings_to_world_kwargs(world_settings)
-
-    expected = set(inspect.signature(World.__init__).parameters) - {"self", "agents"}
-    assert set(kwargs) == expected
+    assert all(spec.name == "default" for spec in specs)
+    assert all("VERIFY" in spec.action_preference for spec in specs)
 
 
 def test_validate_config_rejects_non_integral_count():

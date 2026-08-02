@@ -1,9 +1,12 @@
 from __future__ import annotations
 
-from collections import defaultdict
 import random
+from collections import defaultdict
 from typing import TYPE_CHECKING
 
+from simlab._merge import deep_merge
+from simlab._settings_tracking import FieldTracker
+from simlab.config_schema import AgentSettings
 from simlab.kernel_types import (
     Action,
     ActionType,
@@ -21,95 +24,80 @@ if TYPE_CHECKING:
     from simlab.world import World
 
 
-DEFAULT_SETTINGS: dict = {
-    "observation": {"attention": 1.0, "bias": 0.0},
-    "trust": {"default": 0.5},
-    "learning": {
-        "rate": 0.1,
-        "observe_weight": 0.6,
-        "hear_weight": 0.3,
-        "verify_weight": 1.0,
-    },
-    "social": {
-        "confidence_bound": 1.0,
-        "trust_update_rate": 0.0,
-        "update_trust_on_rejection": True,
-    },
-    "action_preference": {
-        "IDLE": 0.0,
-        "VERIFY": 0.9,
-        "COMMUNICATE": 0.7,
-        "BROADCAST": 0.5,
-    },
-    "action_cost": {
-        "IDLE": 0.0,
-        "VERIFY": 0.35,
-        "COMMUNICATE": 0.15,
-        "BROADCAST": 0.30,
-    },
-}
+_DEFAULT_AGENT_SETTINGS: dict = AgentSettings().model_dump()
 
 
 class Agent:
     def __init__(
         self,
         id: int,
+        settings: AgentSettings | None = None,
         rng_seed: int = 0,
-        action_preference: dict[ActionType, float] | None = None,
-        action_cost: dict[ActionType, float] | None = None,
         profile_name: str = "default",
-        observation_attention: float = DEFAULT_SETTINGS["observation"]["attention"],
-        observation_bias: float = DEFAULT_SETTINGS["observation"]["bias"],
-        default_trust: float = DEFAULT_SETTINGS["trust"]["default"],
-        learning_rate: float = DEFAULT_SETTINGS["learning"]["rate"],
-        observe_weight: float = DEFAULT_SETTINGS["learning"]["observe_weight"],
-        hear_weight: float = DEFAULT_SETTINGS["learning"]["hear_weight"],
-        verify_weight: float = DEFAULT_SETTINGS["learning"]["verify_weight"],
-        social_confidence_bound: float = DEFAULT_SETTINGS["social"]["confidence_bound"],
-        social_trust_update_rate: float = DEFAULT_SETTINGS["social"][
-            "trust_update_rate"
-        ],
-        social_update_trust_on_rejection: bool = DEFAULT_SETTINGS["social"][
-            "update_trust_on_rejection"
-        ],
     ):
         self.id = id
         self.rng = random.Random(rng_seed)
         self.profile_name = profile_name
+        settings = FieldTracker(settings or AgentSettings(), AgentSettings)
 
         # Cognition parameters: how this kind of mind perceives and learns.
-        self.observation_attention = observation_attention  # P(notice an event)
-        self.observation_bias = observation_bias  # systematic perceptual bias
-        self.default_trust = default_trust  # trust for unseen agents
-        self.learning_rate = learning_rate  # global plasticity
-        self.observe_weight = observe_weight  # channel weight for OBSERVE
-        self.hear_weight = hear_weight  # channel weight for HEAR
-        self.verify_weight = verify_weight  # channel weight for VERIFY
+        self.observation_attention = (
+            settings.observation.attention
+        )  # P(notice an event)
+        self.observation_bias = settings.observation.bias  # systematic perceptual bias
+        self.default_trust = settings.trust.default  # trust for unseen agents
+        self.learning_rate = settings.learning.rate  # global plasticity
+        self.observe_weight = settings.learning.observe_weight  # weight for OBSERVE
+        self.hear_weight = settings.learning.hear_weight  # channel weight for HEAR
+        self.verify_weight = settings.learning.verify_weight  # weight for VERIFY
         self.social_confidence_bound = (
-            social_confidence_bound  # max distance for HEAR to update belief
-        )
+            settings.social.confidence_bound
+        )  # max distance for HEAR to update belief
         self.social_trust_update_rate = (
-            social_trust_update_rate  # rate of dynamic trust adjustment
-        )
+            settings.social.trust_update_rate
+        )  # rate of dynamic trust adjustment
         self.social_update_trust_on_rejection = (
-            social_update_trust_on_rejection  # update trust even when HEAR rejected
-        )
+            settings.social.update_trust_on_rejection
+        )  # update trust even when HEAR rejected
 
         self.beliefs: defaultdict[int, float] = defaultdict(lambda: self.rng.random())
         self.trust: defaultdict[int, float] = defaultdict(lambda: self.default_trust)
         self.memory: list[Memory] = []
         self._mem_cursor = 0  # Cursor to track memories for belief updates
-        default_action_preference = {
-            ActionType[k]: v for k, v in DEFAULT_SETTINGS["action_preference"].items()
+        self.action_preference: dict[ActionType, float] = {
+            ActionType[k]: v for k, v in settings.action_preference.items()
         }
-        default_action_cost = {
-            ActionType[k]: v for k, v in DEFAULT_SETTINGS["action_cost"].items()
+        self.action_cost: dict[ActionType, float] = {
+            ActionType[k]: v for k, v in settings.action_cost.items()
         }
-        self.action_preference: dict[ActionType, float] = default_action_preference | (
-            action_preference or {}
-        )
-        self.action_cost: dict[ActionType, float] = default_action_cost | (
-            action_cost or {}
+        settings.assert_fully_consumed()
+
+    @classmethod
+    def from_dict(
+        cls,
+        id: int,
+        raw: dict | None = None,
+        *,
+        rng_seed: int = 0,
+        profile_name: str = "default",
+    ) -> Agent:
+        """Ad-hoc/direct construction entry point: ``raw`` is a possibly
+        partial settings dict (e.g. ``{"learning": {"rate": 0.01}}``).
+
+        ``raw`` is deep-merged onto ``AgentSettings()``'s full defaults
+        before validating, rather than passed straight to
+        ``AgentSettings.model_validate``, so a partial override to a
+        dict-typed field like ``action_preference`` still gets its other
+        keys (``IDLE``/``COMMUNICATE``/``BROADCAST``) defaulted --
+        ``model_validate`` alone replaces the whole dict wholesale on a
+        partial dict-typed field, unlike nested settings sections.
+        """
+        merged = deep_merge(_DEFAULT_AGENT_SETTINGS, raw or {})
+        return cls(
+            id=id,
+            settings=AgentSettings.model_validate(merged),
+            rng_seed=rng_seed,
+            profile_name=profile_name,
         )
 
     def __repr__(self):
