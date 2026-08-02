@@ -230,6 +230,51 @@ def test_execute_run_scenario_fingerprint_normalizes_negative_zero(config_path):
         os.unlink(other_path)
 
 
+def test_execute_run_scenario_fingerprint_normalizes_integral_floats():
+    """global_event_rate: 1 and global_event_rate: 1.0 are behaviorally
+    identical (validation only range-checks, it doesn't require a float
+    literal); scenario_fingerprint must not depend on which one a config
+    happens to spell out."""
+    integral_config = {
+        **CONFIG_DICT,
+        "world": {
+            **CONFIG_DICT["world"],
+            "observation": {
+                **CONFIG_DICT["world"]["observation"],
+                "global_event_rate": 1,
+            },
+        },
+    }
+    float_config = {
+        **CONFIG_DICT,
+        "world": {
+            **CONFIG_DICT["world"],
+            "observation": {
+                **CONFIG_DICT["world"]["observation"],
+                "global_event_rate": 1.0,
+            },
+        },
+    }
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+        yaml.dump(integral_config, f)
+        integral_path = f.name
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+        yaml.dump(float_config, f)
+        float_path = f.name
+
+    try:
+        integral_result = execute_run(RunRequest(config_path=integral_path, steps=1))
+        float_result = execute_run(RunRequest(config_path=float_path, steps=1))
+
+        assert (
+            integral_result.metadata.scenario_fingerprint
+            == float_result.metadata.scenario_fingerprint
+        )
+    finally:
+        os.unlink(integral_path)
+        os.unlink(float_path)
+
+
 def test_execute_run_scenario_fingerprint_same_for_explicit_and_omitted_defaults(
     config_path,
 ):

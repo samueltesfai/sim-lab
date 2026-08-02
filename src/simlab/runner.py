@@ -60,25 +60,31 @@ class RunResult:
 
 
 def _normalize_for_fingerprint(data: Any) -> Any:
-    """Recursively normalize ``-0.0`` to ``0.0`` so behaviorally-equivalent
-    numeric representations hash identically.
+    """Recursively normalize numbers so behaviorally-equivalent
+    representations hash identically: ``-0.0`` becomes ``0.0``, and ints are
+    unified with floats (e.g. YAML's ``1`` and ``1.0``).
 
-    ``json.dumps(-0.0)`` and ``json.dumps(0.0)`` produce different strings
-    even though ``-0.0 == 0.0`` in every arithmetic sense the simulation
-    cares about, which would otherwise give two behaviorally identical
-    scenarios different fingerprints.
+    ``json.dumps(-0.0) != json.dumps(0.0)`` even though ``-0.0 == 0.0`` in
+    every arithmetic sense the simulation cares about, and likewise
+    ``json.dumps(1) != json.dumps(1.0)`` even though config validation
+    accepts either for a float-valued field -- both would otherwise give
+    behaviorally identical scenarios different fingerprints. Bools are left
+    alone despite being an ``int`` subclass, since ``True``/``False`` are a
+    distinct JSON type from numbers.
 
     :param data: A JSON-safe value (dict, list, or scalar)
     :type data: Any
-    :return: The same structure with every ``-0.0`` float replaced by ``0.0``
+    :return: The same structure with every number in canonical float form
     :rtype: Any
     """
     if isinstance(data, dict):
         return {k: _normalize_for_fingerprint(v) for k, v in data.items()}
     if isinstance(data, list):
         return [_normalize_for_fingerprint(v) for v in data]
-    if isinstance(data, float):
-        return data + 0.0
+    if isinstance(data, bool):
+        return data
+    if isinstance(data, (int, float)):
+        return float(data) + 0.0
     return data
 
 

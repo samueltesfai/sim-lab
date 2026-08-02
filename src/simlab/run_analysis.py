@@ -4,6 +4,7 @@ import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from simlab.agent import Agent
 from simlab.kernel_types import ActionType
 from simlab.telemetry import TelemetryRow
 from simlab.world import World
@@ -112,6 +113,57 @@ def _agent_parameter_features(world: World) -> dict[str, float]:
         features[f"agent_action_cost.{action.name}_mean"] = cost_mean
         features[f"agent_action_cost.{action.name}_std"] = cost_std
 
+    features.update(_per_profile_parameter_features(world))
+
+    return features
+
+
+def _per_profile_parameter_features(world: World) -> dict[str, float]:
+    """One parameter snapshot per profile, keyed by ``profile_name``.
+
+    The population-wide mean/std above only capture each parameter's
+    marginal distribution, so two profile assignments with identical
+    per-parameter marginals can still look identical in scenario features
+    even though which values are paired together on the same agents
+    changes simulation behavior (e.g. attentive agents also learning fast
+    vs. attentive agents learning slowly). Since a profile is, by
+    construction, a group of agents sharing one exact settings dict, one
+    representative agent per profile fully captures that pairing -- this
+    assumes same-named agents were built as a profile (true for anything
+    built via ``config.build_world``) rather than hand-assembled with
+    diverging settings under a shared name.
+
+    :param world: The world to extract per-profile agent settings from
+    :type world: World
+    :return: ``agent_profile.<name>.<parameter>`` -> value, one set of keys
+        per distinct ``profile_name``
+    :rtype: dict[str, float]
+    """
+    representative_by_profile: dict[str, Agent] = {}
+    for agent in world.agents:
+        representative_by_profile.setdefault(agent.profile_name, agent)
+
+    features: dict[str, float] = {}
+    for name, agent in representative_by_profile.items():
+        prefix = f"agent_profile.{name}"
+        features[f"{prefix}.attention"] = agent.observation_attention
+        features[f"{prefix}.bias"] = agent.observation_bias
+        features[f"{prefix}.learning_rate"] = agent.learning_rate
+        features[f"{prefix}.observe_weight"] = agent.observe_weight
+        features[f"{prefix}.hear_weight"] = agent.hear_weight
+        features[f"{prefix}.verify_weight"] = agent.verify_weight
+        features[f"{prefix}.default_trust"] = agent.default_trust
+        features[f"{prefix}.confidence_bound"] = agent.social_confidence_bound
+        features[f"{prefix}.trust_update_rate"] = agent.social_trust_update_rate
+        features[f"{prefix}.update_trust_on_rejection"] = float(
+            agent.social_update_trust_on_rejection
+        )
+        for action in ActionType:
+            features[f"{prefix}.action_preference.{action.name}"] = (
+                agent.action_preference[action]
+            )
+            features[f"{prefix}.action_cost.{action.name}"] = agent.action_cost[action]
+
     return features
 
 
@@ -134,10 +186,12 @@ def extract_scenario_features(
     """
     Extract scenario features describing conditions known before the run:
     graph structure, population/profile composition, agent parameter
-    distributions, world observation/noise settings, and the initial belief
-    state. ``initial_row`` must come from ``Telemetry.record_initial(world)``
-    for the same world, so belief/trust/truth-alignment stats aren't
-    recomputed here.
+    distributions (both population-wide marginals and per-profile
+    snapshots, since marginals alone can't distinguish which parameter
+    values are paired on the same agents), world observation/noise
+    settings, and the initial belief state. ``initial_row`` must come from
+    ``Telemetry.record_initial(world)`` for the same world, so
+    belief/trust/truth-alignment stats aren't recomputed here.
     """
     features: dict[str, float | int] = {
         "num_agents": len(world.agents),

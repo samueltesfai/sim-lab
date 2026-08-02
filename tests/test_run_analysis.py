@@ -127,6 +127,64 @@ def test_extract_scenario_features_includes_all_behavior_driving_params():
     assert features["agent_action_cost.VERIFY_mean"] == pytest.approx(0.5)
 
 
+def test_extract_scenario_features_per_profile_distinguishes_parameter_pairing():
+    """Population-wide mean/std alone can't tell apart which parameter
+    values are paired on the same agent: two profile assignments with
+    identical per-parameter marginals must still produce different
+    per-profile features if the pairing differs."""
+
+    def build(attentive_learning_rate, distracted_learning_rate):
+        return _build_world(
+            [
+                (
+                    "attentive",
+                    {
+                        "observation_attention": 0.9,
+                        "learning_rate": attentive_learning_rate,
+                    },
+                ),
+                (
+                    "distracted",
+                    {
+                        "observation_attention": 0.1,
+                        "learning_rate": distracted_learning_rate,
+                    },
+                ),
+            ]
+        )
+
+    world_paired = build(0.9, 0.1)
+    world_swapped = build(0.1, 0.9)
+    telemetry = Telemetry()
+    row_paired = telemetry.record_initial(world_paired)
+    row_swapped = telemetry.record_initial(world_swapped)
+
+    features_paired = extract_scenario_features(world_paired, row_paired)
+    features_swapped = extract_scenario_features(world_swapped, row_swapped)
+
+    # Marginals are identical -- this is exactly what makes them insufficient.
+    assert features_paired["agent_learning_rate_mean"] == pytest.approx(
+        features_swapped["agent_learning_rate_mean"]
+    )
+    assert features_paired["agent_learning_rate_std"] == pytest.approx(
+        features_swapped["agent_learning_rate_std"]
+    )
+
+    # Per-profile features must still tell the two scenarios apart.
+    assert features_paired["agent_profile.attentive.learning_rate"] == pytest.approx(
+        0.9
+    )
+    assert features_paired["agent_profile.distracted.learning_rate"] == pytest.approx(
+        0.1
+    )
+    assert features_swapped["agent_profile.attentive.learning_rate"] == pytest.approx(
+        0.1
+    )
+    assert features_swapped["agent_profile.distracted.learning_rate"] == pytest.approx(
+        0.9
+    )
+
+
 def test_extract_scenario_features_initial_state_matches_telemetry_row():
     world = _build_world([("default", {}) for _ in range(4)])
     telemetry = Telemetry()
