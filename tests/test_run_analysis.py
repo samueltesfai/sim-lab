@@ -1,5 +1,6 @@
 import pytest
 
+from simlab.agent import Agent
 from simlab.config import validate_config, world_from_config
 from simlab.config_schema import SimConfig
 from simlab.run_analysis import (
@@ -267,6 +268,31 @@ def test_graph_features_no_agents_does_not_crash():
     assert features["graph.num_nodes"] == 0
     assert features["graph.edge_density"] == 0.0
     assert features["graph.fraction_isolated"] == 0.0
+
+
+def test_graph_features_adjacency_fingerprint_distinguishes_same_degree_distribution():
+    """Two networks can share every degree-based aggregate (num_edges,
+    mean/std/min/max out_degree, fraction_isolated) while wiring genuinely
+    different neighbor pairs -- local_disagreement/communicate delivery
+    depends on exact adjacency, so degree aggregates alone would make these
+    scenarios indistinguishable. Seeds 5 and 6 (6 agents) are a known pair
+    with identical degree stats but different edges."""
+
+    def build(seed):
+        agents = [Agent(i, rng_seed=100 + i) for i in range(6)]
+        return World.from_dict(agents, {"truths": {0: True}, "rng_seed": seed})
+
+    features_a = _graph_features(build(5))
+    features_b = _graph_features(build(6))
+
+    degree_keys = {k for k in features_a if k != "graph.adjacency_fingerprint"}
+    assert {k: features_a[k] for k in degree_keys} == {
+        k: features_b[k] for k in degree_keys
+    }
+    assert (
+        features_a["graph.adjacency_fingerprint"]
+        != features_b["graph.adjacency_fingerprint"]
+    )
 
 
 def test_agent_parameter_features_empty_profiles_does_not_crash():

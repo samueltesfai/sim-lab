@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -56,6 +57,14 @@ def _graph_features(world: World) -> dict[str, float | int]:
     fraction_isolated = (
         sum(1 for d in out_degrees if d == 0) / num_nodes if num_nodes else 0.0
     )
+    # Degree aggregates alone can't tell two differently-wired networks
+    # apart (same degree distribution, different actual neighbor pairing) --
+    # local_disagreement/communicate delivery depends on exact adjacency, so
+    # a canonical hash of the edge set is included alongside the aggregates.
+    canonical_edges = repr(sorted(world.edges)).encode()
+    adjacency_fingerprint = int.from_bytes(
+        hashlib.sha256(canonical_edges).digest()[:8], "big"
+    )
 
     return {
         "graph.num_nodes": num_nodes,
@@ -66,6 +75,7 @@ def _graph_features(world: World) -> dict[str, float | int]:
         "graph.min_out_degree": min(out_degrees) if out_degrees else 0,
         "graph.max_out_degree": max(out_degrees) if out_degrees else 0,
         "graph.fraction_isolated": fraction_isolated,
+        "graph.adjacency_fingerprint": adjacency_fingerprint,
     }
 
 
