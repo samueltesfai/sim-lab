@@ -57,6 +57,25 @@ def test_world_initialization():
         assert agent_id not in connections
 
 
+def test_world_claims_order_independent_of_truths_insertion_order():
+    """self.claims feeds rng.choice, so two worlds built from the same
+    truths content in a different key order must still behave identically
+    -- otherwise an insertion-order-blind scenario_fingerprint (JSON dump
+    with sort_keys=True) would silently collide two behaviorally different
+    scenarios."""
+    agents_a = [Agent(i, rng_seed=i) for i in range(3)]
+    world_a = World.from_dict(
+        agents_a, {"truths": {0: True, 1: False, 2: True}, "rng_seed": 1}
+    )
+    agents_b = [Agent(i, rng_seed=i) for i in range(3)]
+    world_b = World.from_dict(
+        agents_b, {"truths": {2: True, 0: True, 1: False}, "rng_seed": 1}
+    )
+
+    assert world_a.claims == world_b.claims == [0, 1, 2]
+    assert world_a.truths == world_b.truths
+
+
 def test_world_properties():
     """Test World properties."""
     world = _build_world(3)

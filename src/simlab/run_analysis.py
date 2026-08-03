@@ -404,6 +404,14 @@ def compute_run_summary(
     """
     if not telemetry:
         raise ValueError("telemetry must contain at least the initial row")
+    if not 0 <= truth_alignment_threshold <= 1:
+        # Compared against fractions that are always in [0, 1]; out of range
+        # makes final_truth_aligned/final_false_consensus unconditionally
+        # true or false, independent of the trajectory.
+        raise ValueError(
+            f"truth_alignment_threshold must be in [0, 1], got "
+            f"{truth_alignment_threshold}"
+        )
 
     initial_row = telemetry[0]
     stepped_rows = [row for row in telemetry if row.tick >= 0]

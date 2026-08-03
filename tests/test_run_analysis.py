@@ -577,6 +577,20 @@ def test_compute_run_summary_no_false_consensus_when_converged_but_uncertain():
     assert summary.final_false_consensus is False
 
 
+def test_compute_run_summary_rejects_out_of_range_truth_alignment_threshold():
+    """fraction_truth_aligned/fraction_confident_wrong are always in [0, 1],
+    so an out-of-range threshold would make final_truth_aligned and
+    final_false_consensus unconditionally true or false -- e.g. a negative
+    threshold produces both true at once, a contradiction."""
+    row = _row(-1)
+
+    for bad in (-0.1, 1.5):
+        with pytest.raises(ValueError, match="truth_alignment_threshold"):
+            compute_run_summary(
+                [row], total_runtime_ms=0.0, truth_alignment_threshold=bad
+            )
+
+
 def test_compute_run_summary_no_consensus_when_disagreement_high():
     initial = _row(-1)
     steps = [

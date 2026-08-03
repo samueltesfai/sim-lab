@@ -27,7 +27,9 @@ class World:
         self.tick = 0
         self.rng = random.Random(settings.rng_seed)
         self.noise = {MemoryType[k]: v for k, v in settings.noise.items()}
-        self.truths = dict(settings.truths)
+        # Sorted: self.claims feeds rng.choice, so insertion order would
+        # otherwise leak into which claim each RNG draw picks.
+        self.truths = dict(sorted(settings.truths.items()))
         # private_event_rate: per-agent per-tick chance of a private observation
         #   event visible only to that agent.
         # global_event_rate: per-tick chance of one shared observation event
