@@ -362,9 +362,6 @@ def find_convergence_tick(
     :raises ValueError: if ``window`` isn't an int or is less than 1, or
         either threshold is negative or non-finite.
     """
-    # non-integral window (e.g. 1.5) would never equal the int `consecutive`
-    # counter below, silently reporting even a fully stable trajectory as
-    # never converged instead of raising.
     if isinstance(window, bool) or not isinstance(window, int):
         raise ValueError(f"window must be an int, got {window!r}")
     if window < 1:
