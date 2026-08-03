@@ -599,6 +599,32 @@ def test_compute_run_summary_no_false_consensus_when_converged_but_uncertain():
     assert summary.final_false_consensus is False
 
 
+def test_compute_run_summary_truth_aligned_and_false_consensus_mutually_exclusive():
+    """A shared threshold at or below 0.5 lets fraction_truth_aligned and
+    fraction_confident_wrong both clear it at once (e.g. agents split evenly
+    between confidently-correct and confidently-wrong claims) -- a run must
+    never be reported as both truth-aligned and a false consensus."""
+    initial = _row(-1)
+    steps = [
+        _row(
+            t,
+            mean_abs_delta=0.0005,
+            mean_claim_belief_variance=0.0,
+            fraction_truth_aligned=0.5,
+            fraction_confident_wrong=0.5,
+        )
+        for t in range(25)
+    ]
+
+    summary = compute_run_summary(
+        [initial, *steps], total_runtime_ms=0.0, truth_alignment_threshold=0.5
+    )
+
+    assert summary.final_consensus is True
+    assert summary.final_truth_aligned is True
+    assert summary.final_false_consensus is False
+
+
 def test_compute_run_summary_rejects_out_of_range_truth_alignment_threshold():
     """fraction_truth_aligned/fraction_confident_wrong are always in [0, 1],
     so an out-of-range threshold would make final_truth_aligned and

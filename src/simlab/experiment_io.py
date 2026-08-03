@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import tempfile
+import uuid
 from collections.abc import Sequence
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -129,8 +130,15 @@ def write_run_artifacts(
             json.dump(_build_summary_doc(result), f, indent=2, sort_keys=True)
         _write_trajectory_csv(result.telemetry, os.path.join(tmp_dir, "trajectory.csv"))
 
+        backup_dir = None
         if overwrite and os.path.exists(final_dir):
-            shutil.rmtree(final_dir)
+            # Move the previous run aside instead of deleting it outright:
+            # if the rename below fails, or the process dies before it
+            # runs, the previous complete run is still recoverable instead
+            # of already gone.
+            backup_dir = os.path.join(output_dir, f".{run_id}-prev-{uuid.uuid4().hex}")
+            os.rename(final_dir, backup_dir)
+
         try:
             os.rename(tmp_dir, final_dir)
         except OSError as exc:
@@ -139,12 +147,18 @@ def write_run_artifacts(
             # and this rename, that's what we land here for -- confirm that
             # is really what happened (rather than assuming any OSError
             # means a lost race) before reporting it as a collision.
+            if backup_dir is not None and not os.path.exists(final_dir):
+                os.rename(backup_dir, final_dir)
+                backup_dir = None
             if not overwrite and os.path.exists(final_dir):
                 raise FileExistsError(
                     f"Run directory already exists: {final_dir} "
                     "(pass overwrite=True to replace it)"
                 ) from exc
             raise
+        else:
+            if backup_dir is not None:
+                shutil.rmtree(backup_dir, ignore_errors=True)
     except BaseException:
         shutil.rmtree(tmp_dir, ignore_errors=True)
         raise

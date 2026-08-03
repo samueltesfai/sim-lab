@@ -108,6 +108,44 @@ agent:
         os.unlink(config_path)
 
 
+def test_load_config_allows_yaml_merge_keys():
+    """A `<<: *anchor` merge key isn't itself a duplicate key, and an
+    explicit key overriding one pulled in via merge isn't either -- only a
+    literal repeated key should be rejected."""
+    text = """
+world:
+  rng_seed: 0
+  observation:
+    private_event_rate: 0.1
+    global_event_rate: 0.0
+  truths:
+    0: true
+agent:
+  defaults: {}
+  profiles:
+    - name: default
+      count: 1
+      observation: &obs
+        attention: 0.5
+        bias: 0.0
+    - name: other
+      count: 2
+      observation:
+        <<: *obs
+        attention: 0.9
+"""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+        f.write(text)
+        config_path = f.name
+
+    try:
+        cfg = load_config(config_path)
+        other = next(p for p in cfg.agent.profiles if p.name == "other")
+        assert other.observation.attention == 0.9  # explicit key wins over merge
+    finally:
+        os.unlink(config_path)
+
+
 def test_validate_config_success():
     """Test config validation with valid config."""
     config_dict = {

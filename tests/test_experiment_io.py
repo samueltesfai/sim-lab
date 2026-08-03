@@ -135,6 +135,49 @@ def test_write_run_artifacts_overwrite_replaces_existing_run(config_path, tmp_pa
     assert len(rows) == 5
 
 
+def test_write_run_artifacts_overwrite_preserves_previous_run_on_rename_failure(
+    config_path, tmp_path, mocker
+):
+    """If the final os.rename() fails after the previous run has already
+    been cleared out of the way, the previous (complete, valid) run must
+    still be there afterward -- not silently lost."""
+    final_dir = os.path.join(str(tmp_path), "same-run")
+    first = execute_run(RunRequest(config_path=config_path, steps=1, run_id="same-run"))
+    write_run_artifacts(first, str(tmp_path))
+
+    real_rename = os.rename
+    renames_onto_final_dir = 0
+
+    def _fail_only_on_first_rename_onto_final_dir(src, dst):
+        nonlocal renames_onto_final_dir
+        # The first rename() landing on final_dir is the tmp_dir -> final_dir
+        # swap-in, which should fail here. The final_dir -> backup_dir
+        # displacement lands elsewhere so is unaffected; a second rename
+        # onto final_dir (the restore-on-failure moving backup_dir back)
+        # must go through untouched.
+        if dst == final_dir:
+            renames_onto_final_dir += 1
+            if renames_onto_final_dir == 1:
+                raise OSError("simulated failure landing the replacement")
+        return real_rename(src, dst)
+
+    mocker.patch.object(
+        os, "rename", side_effect=_fail_only_on_first_rename_onto_final_dir
+    )
+
+    second = execute_run(
+        RunRequest(config_path=config_path, steps=4, run_id="same-run")
+    )
+    with pytest.raises(OSError, match="simulated failure landing the replacement"):
+        write_run_artifacts(second, str(tmp_path), overwrite=True)
+
+    # The original run's artifacts are still there, not deleted then lost.
+    assert os.path.isdir(final_dir)
+    with open(os.path.join(final_dir, "trajectory.csv"), newline="") as f:
+        rows = list(csv.DictReader(f))
+    assert len(rows) == 2  # the first run's 1 step + 1 initial row
+
+
 def test_write_run_artifacts_leaves_no_partial_output_on_failure(
     run_result, tmp_path, mocker
 ):

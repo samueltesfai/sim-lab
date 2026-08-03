@@ -22,6 +22,13 @@ class _UniqueKeyLoader(yaml.SafeLoader):
     def construct_mapping(self, node, deep=False):
         seen: set[object] = set()
         for key_node, _ in node.value:
+            # A `<<: *anchor` merge key isn't a real key yet -- constructing
+            # it here (before SafeConstructor's own flatten_mapping expands
+            # it) raises "could not determine a constructor for the tag
+            # merge". Skip it; an explicit key that overrides a merged-in
+            # default is expected YAML behavior, not a duplicate.
+            if key_node.tag == "tag:yaml.org,2002:merge":
+                continue
             key = self.construct_object(key_node, deep=deep)
             if key in seen:
                 raise yaml.constructor.ConstructorError(
