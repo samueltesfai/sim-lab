@@ -68,10 +68,8 @@ def test_run_request_rejects_negative_steps(config_path):
 
 
 def test_run_request_rejects_bool_steps(config_path):
-    """bool is an int subclass, so steps=True would otherwise pass the
-    `steps < 0` check, run exactly one step (range(True) == range(1)), and
-    record requested_steps/completed_steps as JSON booleans in the
-    manifest -- reject it explicitly instead."""
+    """bool is an int subclass, so steps=True/False must be rejected
+    explicitly rather than passing the `steps < 0` check."""
     with pytest.raises(TypeError, match="steps must be an int"):
         RunRequest(config_path=config_path, steps=True)
     with pytest.raises(TypeError, match="steps must be an int"):

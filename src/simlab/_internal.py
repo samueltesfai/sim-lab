@@ -50,30 +50,17 @@ def _leaf_field_paths(model_cls: type[BaseModel], prefix: str = "") -> frozenset
 class FieldTracker:
     """Wraps a pydantic settings instance; every leaf attribute read through
     it (including through nested sections) is recorded in a shared
-    ``_accessed`` set. Only call ``assert_fully_consumed()`` on the root
-    tracker returned by the initial ``FieldTracker(settings, ExpectedCls)``
-    call -- a nested tracker (e.g. one returned for a ``.observation``
-    access) shares that set but doesn't know the full top-level schema to
-    check it against.
+    ``_accessed`` set. Call ``assert_fully_consumed()`` once construction is
+    done to raise if any field was never read -- only on the root tracker,
+    since a nested one (e.g. from a ``.observation`` access) doesn't know
+    the full top-level schema to check against.
 
-    ``expected_cls`` is checked against separately from ``type(model)``
-    because a caller may legitimately pass a *subclass* carrying extra
-    fields the constructor was never meant to consume -- e.g. ``Agent``
-    declares it accepts ``AgentSettings``, but ``world_from_config`` passes
-    an ``AgentProfile`` (which adds ``name``/``count``, consumed elsewhere,
-    not by ``Agent``). Checking completeness against the object's runtime
-    type would flag those as false positives; checking against the
-    constructor's own declared type doesn't.
-
-    Passing a validated settings object straight into ``Agent``/``World``
-    (instead of translating it into a fixed set of flat kwargs first)
-    removes a whole layer of code, but it also removes a safety net that
-    layer had almost by accident: a settings field nobody wired up used to
-    surface as a loud ``TypeError`` (an unrecognized kwarg); now it just
-    sits on the object, unread, with no error anywhere. ``FieldTracker``
-    restores that guarantee directly -- wrap the settings object, use it
-    exactly as you would the real thing, then call
-    ``assert_fully_consumed()`` once construction is done.
+    ``expected_cls`` is checked separately from ``type(model)`` because a
+    caller may pass a subclass with extra fields the constructor was never
+    meant to consume (e.g. ``Agent`` declares ``AgentSettings``, but
+    receives an ``AgentProfile``, whose ``name``/``count`` are consumed
+    elsewhere) -- checking against the runtime type would flag those as
+    false positives.
     """
 
     def __init__(

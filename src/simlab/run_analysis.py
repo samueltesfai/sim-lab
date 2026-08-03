@@ -191,18 +191,13 @@ def _per_profile_parameter_features(
     ``_agent_parameter_features`` for why this is necessary alongside the
     population-wide marginals.
 
-    Also records each profile's position in ``agent.profiles`` --
-    ``world_from_config`` assigns agent ids (and therefore each agent's
-    ``rng_seed`` and position in the network-generation RNG stream)
-    sequentially in that list order, so two configs with the same named
-    profiles/counts/settings but a reversed profile list build genuinely
-    different simulations while every other feature here (keyed by name, or
-    an aggregate/marginal) stays identical -- confirmed directly: such a
-    pair produces byte-identical scenario feature dicts despite different
-    per-agent id/rng_seed assignment. ``order_index`` combined with the
-    already-recorded ``profile_count.<name>`` (see ``_profile_features``)
-    is enough to reconstruct exactly which agent id range each profile
-    occupies, without duplicating that computation here.
+    Also records each profile's ``order_index`` -- ``world_from_config``
+    assigns agent ids/``rng_seed``s sequentially in ``agent.profiles`` list
+    order, so a reversed profile list builds a different simulation even
+    though every other feature here is keyed by name or is an aggregate.
+    Combined with ``profile_count.<name>`` (see ``_profile_features``),
+    ``order_index`` is enough to reconstruct which agent id range each
+    profile occupies.
 
     :param agent_profiles: One resolved settings object per profile, in
         ``agent.profiles`` order
@@ -435,11 +430,8 @@ def compute_run_summary(
         final_row.mean_claim_belief_variance <= convergence_variance_threshold
     )
     final_truth_aligned = final_row.fraction_truth_aligned >= truth_alignment_threshold
-    # `not final_truth_aligned` alone isn't evidence of a *wrong* belief --
-    # agents converged near 0.5 (genuinely uncertain, not confidently
-    # anything) or a run with no truths at all (both metrics 0.0) would
-    # otherwise be mislabeled as false consensus. Require the converged
-    # belief to actually be confidently wrong.
+    # `not final_truth_aligned` isn't evidence of a *wrong* belief -- e.g.
+    # agents converged near 0.5 are uncertain, not confidently wrong.
     final_confidently_wrong = (
         final_row.fraction_confident_wrong >= truth_alignment_threshold
     )

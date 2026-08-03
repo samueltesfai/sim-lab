@@ -49,14 +49,8 @@ ActionName = Literal["IDLE", "VERIFY", "COMMUNICATE", "BROADCAST"]
 
 
 class _Strict(BaseModel):
-    """``allow_inf_nan=False`` rejects ``NaN``/``Infinity`` for every float
-    field model-wide -- otherwise a YAML value like ``.nan`` passes through
-    unconstrained fields silently, and even range-checked fields can't be
-    trusted to catch it: a validator written as ``value < 0`` never rejects
-    ``NaN`` (every comparison against ``NaN`` is ``False``), and whether a
-    given field happens to reject it becomes an accident of how its
-    validator is written rather than a deliberate guarantee.
-    """
+    """``allow_inf_nan=False`` rejects ``NaN``/``Infinity`` model-wide --
+    a ``value < 0``-style validator alone never catches ``NaN``."""
 
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
@@ -161,14 +155,8 @@ class WorldObservation(_Strict):
 
 class WorldSection(_Strict):
     rng_seed: StrictInt
-    # A world with zero claims can't validly run: World._generate_observation_events
-    # calls rng.choice(self.claims) whenever a private/global event fires, which
-    # raises IndexError on an empty list -- reproduced directly, and the crash can
-    # land several ticks in (whichever tick first rolls a hit against the
-    # event rate), not at construction. Rejecting empty truths at validation time
-    # (mirroring AgentSection.profiles' min_length=1) means every construction path
-    # (load_config, World.from_dict, or building a WorldSection by hand) is
-    # covered by this one check, not just the world.step() call site.
+    # A world with zero claims can't run: rng.choice(self.claims) in
+    # World._generate_observation_events raises on an empty list.
     truths: dict[StrictInt, StrictBool] = Field(min_length=1)
     noise: dict[Literal["OBSERVE", "HEAR", "VERIFY"], StrictFloat] = Field(
         default_factory=lambda: {"OBSERVE": 0.0, "HEAR": 0.0, "VERIFY": 0.0}

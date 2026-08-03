@@ -83,13 +83,21 @@ class Agent:
         """Ad-hoc/direct construction entry point: ``raw`` is a possibly
         partial settings dict (e.g. ``{"learning": {"rate": 0.01}}``).
 
-        ``raw`` is deep-merged onto ``AgentSettings()``'s full defaults
-        before validating, rather than passed straight to
-        ``AgentSettings.model_validate``, so a partial override to a
-        dict-typed field like ``action_preference`` still gets its other
-        keys (``IDLE``/``COMMUNICATE``/``BROADCAST``) defaulted --
-        ``model_validate`` alone replaces the whole dict wholesale on a
-        partial dict-typed field, unlike nested settings sections.
+        Deep-merged onto full defaults before validating -- unlike nested
+        settings sections, a dict-typed field like ``action_preference``
+        gets replaced wholesale by plain ``model_validate`` on partial
+        input, not merged key-by-key.
+
+        :param id: The agent's unique identifier
+        :type id: int
+        :param raw: A possibly partial settings dict
+        :type raw: dict | None
+        :param rng_seed: Seed for the agent's own RNG
+        :type rng_seed: int
+        :param profile_name: The profile name to record on the agent
+        :type profile_name: str
+        :return: The constructed agent
+        :rtype: Agent
         """
         merged = deep_merge(_DEFAULT_AGENT_SETTINGS, raw or {})
         return cls(

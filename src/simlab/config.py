@@ -16,13 +16,8 @@ from simlab.world import World
 
 
 class _UniqueKeyLoader(yaml.SafeLoader):
-    """``yaml.SafeLoader`` that rejects a mapping with a repeated key.
-
-    Plain ``yaml.safe_load`` silently keeps only the last value for a
-    duplicated key (e.g. ``learning.rate`` listed twice, or the same claim
-    id under ``truths`` twice) -- the file then loads successfully into a
-    config that doesn't match what's visibly written, with no warning.
-    """
+    """``yaml.SafeLoader`` that rejects a mapping with a repeated key --
+    plain ``yaml.safe_load`` silently keeps only the last value."""
 
     def construct_mapping(self, node, deep=False):
         seen: set[object] = set()
@@ -95,11 +90,8 @@ def _check_structure(cfg: dict) -> None:
     if not isinstance(agent["defaults"], dict):
         raise ValueError("agent.defaults must be a mapping")
     if "name" in agent["defaults"] or "count" in agent["defaults"]:
-        # These are per-profile fields, not shared settings. Without this
-        # check, _materialize_agent_profiles's **merged dict-literal splat
-        # would let a stray agent.defaults.count silently overwrite every
-        # profile's own explicit count -- e.g. defaults: {count: 100} turning
-        # a profile declared with count: 1 into 100 agents, with no error.
+        # Per-profile fields; letting these into defaults would silently
+        # overwrite every profile's own explicit name/count on merge.
         raise ValueError(
             "agent.defaults must not contain 'name' or 'count' -- those are "
             "per-profile fields, not shared settings"
@@ -220,11 +212,8 @@ def _materialize_world_settings(cfg: dict) -> dict:
         "rng_seed": world_cfg["rng_seed"],
         "truths": dict(world_cfg["truths"]),
         "noise": {**_DEFAULT_WORLD_NOISE, **world_cfg.get("noise", {})},
-        # **-spread (not a hand-picked {"private_event_rate": ..., ...}
-        # reconstruction) so an unrecognized key -- e.g. a typo'd
-        # private_event_ratte -- survives into the merged result instead of
-        # being silently dropped before SimConfig's extra="forbid" ever sees
-        # it, mirroring how `noise` above already preserves unknown keys.
+        # **-spread, not hand-picked keys, so an unrecognized key still
+        # reaches extra="forbid" instead of being silently dropped here.
         "observation": {
             **_DEFAULT_WORLD_OBSERVATION,
             **world_cfg.get("observation", {}),

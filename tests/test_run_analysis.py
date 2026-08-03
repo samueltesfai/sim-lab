@@ -210,15 +210,10 @@ def test_extract_scenario_features_per_profile_distinguishes_parameter_pairing()
 
 
 def test_extract_scenario_features_encodes_profile_order():
-    """world_from_config assigns agent ids (and therefore each agent's
-    rng_seed and position in the network-generation RNG stream) sequentially
-    in agent.profiles list order, so two configs with the same named
-    profiles/counts/settings but a reversed profile list build genuinely
-    different simulations. Confirmed directly before this feature existed:
-    such a pair produced byte-identical scenario feature dicts despite the
-    different per-agent id/rng_seed assignment -- order_index (combined with
-    the already-recorded profile_count.<name>) is enough to tell them apart
-    and reconstruct which agent id range each profile occupies."""
+    """world_from_config assigns agent ids/rng_seeds sequentially in
+    agent.profiles list order, so a reversed profile list builds a
+    different simulation even with identical named profiles/counts/
+    settings -- order_index must distinguish the two."""
 
     def build(profiles):
         return _build_scenario(profiles)

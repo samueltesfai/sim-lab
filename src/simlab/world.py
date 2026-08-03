@@ -49,12 +49,17 @@ class World:
         """Ad-hoc/direct construction entry point: ``raw`` is a possibly
         partial world settings dict, e.g. ``{"truths": {0: True}, "rng_seed": 1}``.
 
-        ``truths``/``rng_seed`` have no schema default (a world needs
-        ``truths`` to mean anything), so they must be present in ``raw``;
-        ``noise`` is deep-merged onto its schema default first so a partial
-        override doesn't drop the other channels (same dict-typed-field
-        caveat as ``Agent.from_dict``); ``observation`` is a nested settings
-        section, which pydantic already fills in per-field on partial input.
+        ``truths``/``rng_seed`` have no schema default, so must be present
+        in ``raw``. ``noise`` is deep-merged onto its default first (same
+        dict-typed-field caveat as ``Agent.from_dict``); ``observation`` is
+        a nested section, which pydantic already fills in per-field.
+
+        :param agents: The world's agents
+        :type agents: list[Agent]
+        :param raw: A possibly partial world settings dict
+        :type raw: dict
+        :return: The constructed world
+        :rtype: World
         """
         merged = deep_merge({"noise": _DEFAULT_WORLD_NOISE}, raw)
         return cls(agents=agents, settings=WorldSection.model_validate(merged))

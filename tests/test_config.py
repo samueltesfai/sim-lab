@@ -505,12 +505,7 @@ def test_validate_config_rejects_unknown_top_level_setting():
 
 def test_validate_config_rejects_unknown_world_observation_key():
     """A misspelled world.observation key (e.g. private_event_ratte) must be
-    rejected rather than silently dropped. _materialize_world_settings used
-    to reconstruct the observation dict field-by-field via hand-picked
-    .get() calls instead of a **-spread merge (unlike noise, which already
-    preserved unknown keys this way) -- an unrecognized key was discarded
-    before SimConfig's extra="forbid" ever saw it, and the run silently used
-    the default event rate instead."""
+    rejected rather than silently dropped."""
     config_dict = {
         "world": {
             "rng_seed": 0,
@@ -862,13 +857,8 @@ def test_validate_config_rejects_mixed_type_truth_keys():
 
 
 def test_validate_config_rejects_empty_truths():
-    """A world with zero claims can't validly run -- World._generate_observation_events
-    calls rng.choice(self.claims) whenever a private/global event fires,
-    which raises IndexError on an empty list. Reproduced directly before
-    this check existed: the crash landed mid-run (on whichever tick first
-    rolled a hit against the event rate), not at construction. Rejecting it
-    at validation time catches every construction path, not just
-    World.step()."""
+    """A world with zero claims can't run -- rng.choice(self.claims) in
+    World._generate_observation_events raises on an empty list."""
     cfg = _config([{"name": "default", "count": 1}])
     cfg["world"]["truths"] = {}
 
@@ -1050,13 +1040,8 @@ def test_profile_missing_count_raises():
 
 
 def test_defaults_with_count_raises():
-    """agent.defaults.count must be rejected, not silently overwrite every
-    profile's own explicit count. Reproduced directly before this check
-    existed: {"count": 100} in defaults turned a profile declared with
-    count: 1 into 100 agents -- the **merged dict-literal splat in
-    _materialize_agent_profiles evaluates {"count": count, **merged} where
-    merged (built from a base that already absorbed defaults' stray "count"
-    key) overwrites the profile's own count with no error."""
+    """agent.defaults.count must be rejected -- otherwise it silently
+    overwrites every profile's own explicit count on merge."""
     cfg = _config([{"name": "default", "count": 1}])
     cfg["agent"]["defaults"]["count"] = 100
 
