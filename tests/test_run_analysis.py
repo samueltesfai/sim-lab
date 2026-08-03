@@ -422,6 +422,25 @@ def test_find_convergence_tick_rejects_nonpositive_window(bad_window):
         )
 
 
+@pytest.mark.parametrize("bad_window", [1.5, True, "5"])
+def test_find_convergence_tick_rejects_non_integral_window(bad_window):
+    """A non-int window (e.g. 1.5) would never equal the int `consecutive`
+    counter, silently reporting even a fully stable trajectory as never
+    converged instead of raising."""
+    rows = [
+        _row(t, mean_abs_delta=0.0001, mean_claim_belief_variance=0.0001)
+        for t in range(10)
+    ]
+
+    with pytest.raises(ValueError, match="window must be an int"):
+        find_convergence_tick(
+            rows,
+            delta_threshold=0.001,
+            disagreement_threshold=0.0025,
+            window=bad_window,
+        )
+
+
 def test_find_convergence_tick_rejects_invalid_thresholds():
     """A negative or non-finite threshold would make every comparison
     trivially true or false, independent of the trajectory."""
