@@ -3,6 +3,7 @@ import sys
 import io
 
 from simlab.agent import Agent
+from simlab.config_schema import WorldSection
 from simlab.world import World
 from simlab.kernel_types import Action, ActionType, MemoryType, Snapshot
 
@@ -15,6 +16,16 @@ def _build_world(n: int = 5) -> World:
 # ---------------------------------------------------------------------------
 # Initialization and properties
 # ---------------------------------------------------------------------------
+
+
+def test_world_init_consumes_every_settings_field(field_tracker):
+    """Every WorldSection field must be read somewhere in World.__init__ --
+    otherwise a field could be added to the schema with no behavior wired up
+    for it, and nothing would notice."""
+    settings = WorldSection.model_validate({"rng_seed": 0, "truths": {0: True}})
+    tracked = field_tracker(settings)
+    World(agents=[], settings=tracked)
+    tracked.assert_fully_consumed()
 
 
 def test_world_initialization():

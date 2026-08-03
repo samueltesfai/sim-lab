@@ -3,6 +3,7 @@ import random
 from collections import defaultdict
 
 from simlab.agent import Agent
+from simlab.config_schema import AgentSettings
 from simlab.world import World
 from simlab.kernel_types import Action, ActionType, Memory, MemoryType, ObservationEvent
 
@@ -15,6 +16,15 @@ def _build_world(n: int = 5) -> World:
 # ---------------------------------------------------------------------------
 # Initialization
 # ---------------------------------------------------------------------------
+
+
+def test_agent_init_consumes_every_settings_field(field_tracker):
+    """Every AgentSettings field must be read somewhere in Agent.__init__ --
+    otherwise a field could be added to the schema with no behavior wired up
+    for it, and nothing would notice."""
+    tracked = field_tracker(AgentSettings(), AgentSettings)
+    Agent(id=0, settings=tracked)
+    tracked.assert_fully_consumed()
 
 
 def test_agent_initialization():

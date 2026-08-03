@@ -3,7 +3,7 @@ from __future__ import annotations
 import random
 from collections import defaultdict
 
-from simlab._internal import FieldTracker, deep_merge
+from simlab._internal import deep_merge
 from simlab.agent import Agent
 from simlab.config_schema import WorldSection
 from simlab.kernel_types import (
@@ -25,16 +25,15 @@ class World:
     def __init__(self, agents: list[Agent], settings: WorldSection):
         self._agents = {a.id: a for a in agents}
         self.tick = 0
-        tracked = FieldTracker(settings)
-        self.rng = random.Random(tracked.rng_seed)
-        self.noise = {MemoryType[k]: v for k, v in tracked.noise.items()}
-        self.truths = dict(tracked.truths)
+        self.rng = random.Random(settings.rng_seed)
+        self.noise = {MemoryType[k]: v for k, v in settings.noise.items()}
+        self.truths = dict(settings.truths)
         # private_event_rate: per-agent per-tick chance of a private observation
         #   event visible only to that agent.
         # global_event_rate: per-tick chance of one shared observation event
         #   visible to all agents.
-        self.private_event_rate = tracked.observation.private_event_rate
-        self.global_event_rate = tracked.observation.global_event_rate
+        self.private_event_rate = settings.observation.private_event_rate
+        self.global_event_rate = settings.observation.global_event_rate
         self._next_event_id = 0
         self.network = self._generate_dummy_network(
             # TODO: We can implement a more complex network generation mechanism here,
@@ -42,7 +41,6 @@ class World:
             # configurable graph model.
             agents
         )
-        tracked.assert_fully_consumed()
 
     @classmethod
     def from_dict(cls, agents: list[Agent], raw: dict) -> World:

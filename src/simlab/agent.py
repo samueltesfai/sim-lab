@@ -4,7 +4,7 @@ import random
 from collections import defaultdict
 from typing import TYPE_CHECKING
 
-from simlab._internal import FieldTracker, deep_merge
+from simlab._internal import deep_merge
 from simlab.config_schema import AgentSettings
 from simlab.kernel_types import (
     Action,
@@ -37,7 +37,7 @@ class Agent:
         self.id = id
         self.rng = random.Random(rng_seed)
         self.profile_name = profile_name
-        settings = FieldTracker(settings or AgentSettings(), AgentSettings)
+        settings = settings or AgentSettings()
 
         # Cognition parameters: how this kind of mind perceives and learns.
         self.observation_attention = (
@@ -69,7 +69,6 @@ class Agent:
         self.action_cost: dict[ActionType, float] = {
             ActionType[k]: v for k, v in settings.action_cost.items()
         }
-        settings.assert_fully_consumed()
 
     @classmethod
     def from_dict(
