@@ -60,7 +60,7 @@ in the simulation.
 ### `world.noise`
 
 Standard deviation of the Gaussian noise added to each evidence channel. Each
-key is optional and defaults to `0.0` if omitted; any value present must be
+key is optional and defaults to <!-- DEFAULT world.noise -->`0.0`<!-- /DEFAULT --> if omitted; any value present must be
 non-negative.
 
 | Key       | Applies to                          |
@@ -86,15 +86,16 @@ Controls how often the world emits passive observation events.
 
 #### `private_event_rate`
 
-Required float in `[0, 1]`. The **per-agent, per-tick** probability that the
+Float in `[0, 1]`. The **per-agent, per-tick** probability that the
 world emits a private observation event visible only to that agent. With `N`
 agents the expected number of private events per tick is `N * private_event_rate`.
+Default <!-- DEFAULT world.observation.private_event_rate -->`0.1`<!-- /DEFAULT -->.
 
 #### `global_event_rate`
 
-Required float in `[0, 1]`. The **per-tick** probability that the world emits a
+Float in `[0, 1]`. The **per-tick** probability that the world emits a
 single global observation event visible to *every* agent. Set to `0.0` to
-disable shared events.
+disable shared events. Default <!-- DEFAULT world.observation.global_event_rate -->`0.0`<!-- /DEFAULT -->.
 
 ```yaml
 observation:
@@ -120,18 +121,18 @@ shown below.
 #### `observation.attention`
 
 Float in `[0, 1]`. Probability that the agent notices an observation event it is
-visible to. Default `1.0`.
+visible to. Default <!-- DEFAULT observation.attention -->`1.0`<!-- /DEFAULT -->.
 
 #### `observation.bias`
 
 Float in `[-1, 1]`. Systematic perceptual shift applied to noticed observation
-evidence (`encoded = clamp(evidence + bias)`). Default `0.0`. Realistic configs
+evidence (`encoded = clamp(evidence + bias)`). Default <!-- DEFAULT observation.bias -->`0.0`<!-- /DEFAULT -->. Realistic configs
 use small values like `-0.1`, `0.0`, or `0.1`.
 
 #### `trust.default`
 
 Float. Trust assigned to otherwise-unseen source agents; modulates the weight of
-heard evidence. Default `0.5`.
+heard evidence. Default <!-- DEFAULT trust.default -->`0.5`<!-- /DEFAULT -->.
 
 #### `social.confidence_bound`
 
@@ -139,46 +140,47 @@ Float in `[0, 1]`. Maximum distance (`|heard evidence - current belief|`)
 at which a `HEAR` memory is still accepted for belief updating. Heard
 evidence further than this from the agent's current belief is treated as
 implausible and contributes an effective learning rate of `0.0` for that
-memory. Default `1.0` (no bound — all heard evidence is accepted).
+memory. Default <!-- DEFAULT social.confidence_bound -->`1.0`<!-- /DEFAULT --> (no bound — all heard evidence is accepted).
 
 #### `social.trust_update_rate`
 
 Float in `[0, 1]`. Rate at which trust in a `HEAR` memory's source is
 adjusted toward the agent's observed agreement with that source
 (`1 - |heard evidence - belief before update|`), each time a `HEAR` memory
-is processed. `0.0` (the default) disables dynamic trust updates, leaving
+is processed. <!-- DEFAULT social.trust_update_rate -->`0.0`<!-- /DEFAULT --> (the default) disables dynamic trust updates, leaving
 trust fixed at `trust.default` (or its per-source value) for the whole run.
 
 #### `social.update_trust_on_rejection`
 
 Boolean. Whether trust toward a source is still updated when its `HEAR`
-memory was rejected by `social.confidence_bound`. Default `true`. Set to
+memory was rejected by `social.confidence_bound`. Default <!-- DEFAULT social.update_trust_on_rejection -->`true`<!-- /DEFAULT -->. Set to
 `false` to only adjust trust from accepted (in-bound) heard evidence. No
 effect when `social.trust_update_rate` is `0.0`.
 
 #### `learning.rate`
 
 Float. Global plasticity — the base learning rate applied to all belief updates
-before channel weights. Default `0.1`.
+before channel weights. Default <!-- DEFAULT learning.rate -->`0.1`<!-- /DEFAULT -->.
 
 #### `learning.observe_weight`
 
-Float. Channel weight for `OBSERVE` memories. Default `0.6`.
+Float. Channel weight for `OBSERVE` memories. Default <!-- DEFAULT learning.observe_weight -->`0.6`<!-- /DEFAULT -->.
 
 #### `learning.hear_weight`
 
 Float. Channel weight for `HEAR` memories (further multiplied by trust in the
-source). Default `0.3`.
+source). Default <!-- DEFAULT learning.hear_weight -->`0.3`<!-- /DEFAULT -->.
 
 #### `learning.verify_weight`
 
-Float. Channel weight for `VERIFY` memories. Default `1.0`.
+Float. Channel weight for `VERIFY` memories. Default <!-- DEFAULT learning.verify_weight -->`1.0`<!-- /DEFAULT -->.
 
 #### `action_preference`
 
 Mapping of action name -> preference in `[0, 1]`. Valid action names are
 `IDLE`, `VERIFY`, `COMMUNICATE`, `BROADCAST`. Defaults:
 
+<!-- DEFAULT action_preference -->
 ```yaml
 action_preference:
   IDLE: 0.0
@@ -186,18 +188,21 @@ action_preference:
   COMMUNICATE: 0.7
   BROADCAST: 0.5
 ```
+<!-- /DEFAULT -->
 
 #### `action_cost`
 
 Mapping of action name -> non-negative cost. Same valid action names. Defaults:
 
+<!-- DEFAULT action_cost -->
 ```yaml
 action_cost:
   IDLE: 0.0
   VERIFY: 0.35
   COMMUNICATE: 0.15
-  BROADCAST: 0.30
+  BROADCAST: 0.3
 ```
+<!-- /DEFAULT -->
 
 A partial `action_preference` / `action_cost` map is merged onto the built-in
 defaults, so you only need to list the actions you want to change.

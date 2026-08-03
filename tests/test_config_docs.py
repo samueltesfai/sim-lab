@@ -5,11 +5,15 @@ from generate_config_skeleton import (
     RULES_END_MARKER,
     SKELETON_BEGIN_MARKER,
     SKELETON_END_MARKER,
+    render_reference_defaults,
     render_skeleton,
     render_validation_rules,
 )
 
 _CONFIG_MD = Path(__file__).resolve().parent.parent / "docs" / "config.md"
+_CONFIG_REFERENCE_MD = (
+    Path(__file__).resolve().parent.parent / "docs" / "config_reference.md"
+)
 
 
 def _between_markers(text: str, begin: str, end: str) -> str:
@@ -57,6 +61,39 @@ def test_config_md_validation_rules_matches_generated_output():
     """
     assert _committed_validation_rules() == render_validation_rules(), (
         "docs/config.md's Validation Rules block does not match what "
+        "scripts/generate_config_skeleton.py produces from config_schema.py. "
+        "Run `python scripts/generate_config_skeleton.py` to update the doc."
+    )
+
+
+def _committed_reference_defaults() -> dict[str, str]:
+    # Not _between_markers: "<!-- /DEFAULT -->" repeats once per field, so
+    # searching for it from the start of the document (as _between_markers
+    # does) can find an earlier field's closing marker instead of this
+    # one's -- search for `end` starting from `start` instead.
+    text = _CONFIG_REFERENCE_MD.read_text(encoding="utf-8")
+    committed: dict[str, str] = {}
+    for name in render_reference_defaults():
+        begin = f"<!-- DEFAULT {name} -->"
+        end = "<!-- /DEFAULT -->"
+        start = text.index(begin) + len(begin)
+        stop = text.index(end, start)
+        committed[name] = text[start:stop].strip()
+    return committed
+
+
+def test_config_reference_defaults_match_generated_output():
+    """docs/config_reference.md's inline <!-- DEFAULT ... --> spans must
+    match what scripts/generate_config_skeleton.py produces from
+    config_schema.py -- if this fails, a default changed without
+    regenerating the doc. Run `python scripts/generate_config_skeleton.py`
+    to fix.
+    """
+    expected = {
+        name: value.strip() for name, value in render_reference_defaults().items()
+    }
+    assert _committed_reference_defaults() == expected, (
+        "docs/config_reference.md's default-value markers do not match what "
         "scripts/generate_config_skeleton.py produces from config_schema.py. "
         "Run `python scripts/generate_config_skeleton.py` to update the doc."
     )

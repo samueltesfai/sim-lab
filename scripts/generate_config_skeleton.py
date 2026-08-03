@@ -207,15 +207,81 @@ def render_validation_rules() -> str:
     return "\n".join(["| Field | Rule |", "| --- | --- |", *rows])
 
 
+def _fmt_default(value: object) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
+def _scalar_defaults(model_cls: type[BaseModel], prefix: str = "") -> dict[str, object]:
+    """Dotted path -> default value, for every scalar leaf field of
+    ``model_cls`` that has a real default. Mirrors ``_render_rules``'s walk
+    but collects values instead of constraint text; ``dict[...]``-typed
+    fields (whole-dict defaults like ``action_preference``) are handled
+    separately by the caller.
+    """
+    defaults: dict[str, object] = {}
+    for name, field in model_cls.model_fields.items():
+        path = f"{prefix}.{name}" if prefix else name
+        base = _base_type(field.annotation)
+
+        if isinstance(base, type) and issubclass(base, BaseModel):
+            defaults.update(_scalar_defaults(base, path))
+            continue
+        if typing.get_origin(field.annotation) is dict:
+            continue
+        if not field.is_required():
+            defaults[path] = field.get_default(call_default_factory=True)
+
+    return defaults
+
+
+def render_reference_defaults() -> dict[str, str]:
+    """Marker name -> replacement text for docs/config_reference.md's
+    inline ``<!-- DEFAULT name -->...<!-- /DEFAULT -->`` spans."""
+    markers: dict[str, str] = {}
+
+    for path, value in _scalar_defaults(WorldObservation, "world.observation").items():
+        markers[path] = f"`{_fmt_default(value)}`"
+    for path, value in _scalar_defaults(AgentSettings).items():
+        markers[path] = f"`{_fmt_default(value)}`"
+
+    noise_default = WorldSection.model_fields["noise"].get_default(
+        call_default_factory=True
+    )
+    markers["world.noise"] = f"`{_fmt_default(noise_default['OBSERVE'])}`"
+
+    for field_name in ("action_preference", "action_cost"):
+        default = AgentSettings.model_fields[field_name].get_default(
+            call_default_factory=True
+        )
+        body = "\n".join(f"  {k}: {v}" for k, v in default.items())
+        markers[field_name] = f"\n```yaml\n{field_name}:\n{body}\n```\n"
+
+    return markers
+
+
 def _replace_between_markers(text: str, begin: str, end: str, replacement: str) -> str:
     start = text.index(begin) + len(begin)
     stop = text.index(end)
     return f"{text[:start]}\n{replacement}\n{text[stop:]}"
 
 
+def _apply_inline_markers(text: str, markers: dict[str, str]) -> str:
+    for name, replacement in markers.items():
+        begin = f"<!-- DEFAULT {name} -->"
+        end = "<!-- /DEFAULT -->"
+        start = text.index(begin) + len(begin)
+        stop = text.index(end, start)
+        text = f"{text[:start]}{replacement}{text[stop:]}"
+    return text
+
+
 def main() -> None:
-    doc_path = Path(__file__).resolve().parent.parent / "docs" / "config.md"
-    text = doc_path.read_text(encoding="utf-8")
+    docs_dir = Path(__file__).resolve().parent.parent / "docs"
+
+    config_md = docs_dir / "config.md"
+    text = config_md.read_text(encoding="utf-8")
     text = _replace_between_markers(
         text,
         SKELETON_BEGIN_MARKER,
@@ -225,8 +291,14 @@ def main() -> None:
     text = _replace_between_markers(
         text, RULES_BEGIN_MARKER, RULES_END_MARKER, render_validation_rules()
     )
-    doc_path.write_text(text, encoding="utf-8")
-    print(f"Regenerated skeleton and validation rules in {doc_path}")
+    config_md.write_text(text, encoding="utf-8")
+
+    reference_md = docs_dir / "config_reference.md"
+    text = reference_md.read_text(encoding="utf-8")
+    text = _apply_inline_markers(text, render_reference_defaults())
+    reference_md.write_text(text, encoding="utf-8")
+
+    print(f"Regenerated {config_md} and {reference_md}")
 
 
 if __name__ == "__main__":
