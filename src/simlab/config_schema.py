@@ -89,6 +89,20 @@ class LearningSettings(_Strict):
     verify_weight: StrictFloat = 1.0
 
 
+_DEFAULT_ACTION_PREFERENCE = {
+    "IDLE": 0.0,
+    "VERIFY": 0.9,
+    "COMMUNICATE": 0.7,
+    "BROADCAST": 0.5,
+}
+_DEFAULT_ACTION_COST = {
+    "IDLE": 0.0,
+    "VERIFY": 0.35,
+    "COMMUNICATE": 0.15,
+    "BROADCAST": 0.30,
+}
+
+
 class AgentSettings(_Strict):
     """A fully-resolved agent settings node -- every field present, as
     produced by ``config.py``'s ``_materialize_agent_profiles``."""
@@ -98,21 +112,27 @@ class AgentSettings(_Strict):
     social: SocialSettings = Field(default_factory=SocialSettings)
     learning: LearningSettings = Field(default_factory=LearningSettings)
     action_preference: dict[ActionName, StrictFloat] = Field(
-        default_factory=lambda: {
-            "IDLE": 0.0,
-            "VERIFY": 0.9,
-            "COMMUNICATE": 0.7,
-            "BROADCAST": 0.5,
-        }
+        default_factory=lambda: dict(_DEFAULT_ACTION_PREFERENCE)
     )
     action_cost: dict[ActionName, StrictFloat] = Field(
-        default_factory=lambda: {
-            "IDLE": 0.0,
-            "VERIFY": 0.35,
-            "COMMUNICATE": 0.15,
-            "BROADCAST": 0.30,
-        }
+        default_factory=lambda: dict(_DEFAULT_ACTION_COST)
     )
+
+    # mode="before": a directly-constructed AgentSettings(action_preference=
+    # {"IDLE": 0.5}) would otherwise validate fine with only that one key --
+    # dict-typed fields don't get filled in per-key the way nested settings
+    # sections do, so Agent would build an incomplete action_preference and
+    # KeyError on score_action() for any omitted action. Filling missing keys
+    # here mirrors what config.py's deep_merge already does for the YAML path.
+    @field_validator("action_preference", mode="before")
+    @classmethod
+    def _fill_action_preference(cls, v: object) -> object:
+        return {**_DEFAULT_ACTION_PREFERENCE, **v} if isinstance(v, dict) else v
+
+    @field_validator("action_cost", mode="before")
+    @classmethod
+    def _fill_action_cost(cls, v: object) -> object:
+        return {**_DEFAULT_ACTION_COST, **v} if isinstance(v, dict) else v
 
     @field_validator("action_preference")
     @classmethod
@@ -153,15 +173,28 @@ class WorldObservation(_Strict):
     global_event_rate: StrictFloat = Field(0.0, ge=0, le=1)
 
 
+_DEFAULT_NOISE = {"OBSERVE": 0.0, "HEAR": 0.0, "VERIFY": 0.0}
+
+
 class WorldSection(_Strict):
     rng_seed: StrictInt
     # A world with zero claims can't run: rng.choice(self.claims) in
     # World._generate_observation_events raises on an empty list.
     truths: dict[StrictInt, StrictBool] = Field(min_length=1)
     noise: dict[Literal["OBSERVE", "HEAR", "VERIFY"], StrictFloat] = Field(
-        default_factory=lambda: {"OBSERVE": 0.0, "HEAR": 0.0, "VERIFY": 0.0}
+        default_factory=lambda: dict(_DEFAULT_NOISE)
     )
     observation: WorldObservation = Field(default_factory=WorldObservation)
+
+    # mode="before": a directly-constructed WorldSection(noise={"OBSERVE": 0.1})
+    # would otherwise validate fine with only that one channel -- World then
+    # copies it verbatim and KeyErrors on the first missing channel it needs.
+    # Filling missing keys here mirrors what config.py's deep_merge already
+    # does for the YAML path.
+    @field_validator("noise", mode="before")
+    @classmethod
+    def _fill_noise(cls, v: object) -> object:
+        return {**_DEFAULT_NOISE, **v} if isinstance(v, dict) else v
 
     @field_validator("noise")
     @classmethod

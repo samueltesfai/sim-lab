@@ -9,7 +9,7 @@ from simlab.config import (
     expand_agent_specs,
     world_from_config,
 )
-from simlab.config_schema import SimConfig
+from simlab.config_schema import AgentSettings, SimConfig, WorldSection
 from simlab.kernel_types import ActionType, MemoryType, Snapshot
 from simlab.world import World
 
@@ -1256,3 +1256,59 @@ def test_social_params_absent_uses_agent_defaults():
         assert agent.social_confidence_bound == pytest.approx(1.0)
         assert agent.social_trust_update_rate == pytest.approx(0.0)
         assert agent.social_update_trust_on_rejection is True
+
+
+# ---------------------------------------------------------------------------
+# Direct pydantic model construction (bypassing the config.py pipeline)
+#
+# AgentSettings/WorldSection are constructible directly now that Agent/World
+# accept them as their settings argument -- config.py's deep_merge always
+# hands them a complete dict, but a direct caller doesn't have to.
+# ---------------------------------------------------------------------------
+
+
+def test_agent_settings_fills_partial_action_preference():
+    """AgentSettings(action_preference={"IDLE": 0.5}) must fill the other
+    actions from defaults, not leave them missing -- Agent would otherwise
+    KeyError in score_action() for any omitted action."""
+    settings = AgentSettings(action_preference={"IDLE": 0.5})
+
+    assert settings.action_preference == {
+        "IDLE": 0.5,
+        "VERIFY": 0.9,
+        "COMMUNICATE": 0.7,
+        "BROADCAST": 0.5,
+    }
+
+
+def test_agent_settings_fills_partial_action_cost():
+    """Same guard, for action_cost."""
+    settings = AgentSettings(action_cost={"VERIFY": 0.5})
+
+    assert settings.action_cost == {
+        "IDLE": 0.0,
+        "VERIFY": 0.5,
+        "COMMUNICATE": 0.15,
+        "BROADCAST": 0.30,
+    }
+
+
+def test_world_section_fills_partial_noise():
+    """WorldSection(noise={"OBSERVE": 0.1}) must fill the other channels
+    from defaults -- World would otherwise KeyError on the first missing
+    channel it needs."""
+    settings = WorldSection.model_validate(
+        {"rng_seed": 0, "truths": {0: True}, "noise": {"OBSERVE": 0.1}}
+    )
+
+    assert settings.noise == {"OBSERVE": 0.1, "HEAR": 0.0, "VERIFY": 0.0}
+
+
+def test_world_section_fills_empty_noise():
+    """An explicitly empty noise dict (distinct from omitting the key
+    entirely) must still be filled, not left empty."""
+    settings = WorldSection.model_validate(
+        {"rng_seed": 0, "truths": {0: True}, "noise": {}}
+    )
+
+    assert settings.noise == {"OBSERVE": 0.0, "HEAR": 0.0, "VERIFY": 0.0}
