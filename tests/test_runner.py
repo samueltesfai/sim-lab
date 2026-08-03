@@ -379,6 +379,43 @@ def test_execute_run_scenario_fingerprint_same_for_explicit_and_omitted_defaults
         os.unlink(explicit_path)
 
 
+def test_execute_run_scenario_fingerprint_ignores_profile_name(config_path):
+    """profile_name is reporting-only -- no agent id, RNG seed, network
+    position, or setting derives from it -- so renaming a profile must
+    fingerprint identically and produce identical simulation results."""
+    renamed_config = {
+        **CONFIG_DICT,
+        "agent": {
+            **CONFIG_DICT["agent"],
+            "profiles": [{"name": "renamed", "count": 5}],
+        },
+    }
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+        yaml.dump(renamed_config, f)
+        renamed_path = f.name
+
+    try:
+        original_result = execute_run(RunRequest(config_path=config_path, steps=1))
+        renamed_result = execute_run(RunRequest(config_path=renamed_path, steps=1))
+
+        assert (
+            original_result.metadata.scenario_fingerprint
+            == renamed_result.metadata.scenario_fingerprint
+        )
+        assert (
+            original_result.metadata.run_spec_fingerprint
+            == renamed_result.metadata.run_spec_fingerprint
+        )
+        original_rows = [row.to_dict() for row in original_result.telemetry]
+        renamed_rows = [row.to_dict() for row in renamed_result.telemetry]
+        for original_row, renamed_row in zip(original_rows, renamed_rows):
+            original_row.pop("step_runtime_ms")
+            renamed_row.pop("step_runtime_ms")
+        assert original_rows == renamed_rows
+    finally:
+        os.unlink(renamed_path)
+
+
 def test_execute_run_scenario_matches_world(config_path):
     result = execute_run(RunRequest(config_path=config_path, steps=1))
     scenario = result.scenario

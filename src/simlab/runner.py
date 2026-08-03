@@ -123,7 +123,8 @@ def execute_run(request: RunRequest) -> RunResult:
     contaminates the runtime measurement. Also derives run metadata --
     a ``scenario_fingerprint`` identifying the behaviorally meaningful
     configuration (excluding the seed, since different seeds are stochastic
-    replicates of the same scenario, not different scenarios), a
+    replicates of the same scenario, not different scenarios; and excluding
+    profile names, which are reporting-only labels), a
     ``run_spec_fingerprint`` identifying this exact requested replicate
     (scenario + seed + steps), and a ``run_id`` for this specific execution
     -- scenario features describing the conditions the run started under,
@@ -138,7 +139,16 @@ def execute_run(request: RunRequest) -> RunResult:
     cfg = load_config(request.config_path)
     world = world_from_config(cfg)
     resolved_config: dict[str, Any] = cfg.model_dump()
-    scenario_fingerprint = _fingerprint(cfg.model_dump(exclude={"world": {"rng_seed"}}))
+    # profiles[*].name is reporting-only (no RNG seed, network position, or
+    # setting derives from it), so a pure rename must fingerprint identically.
+    scenario_fingerprint = _fingerprint(
+        cfg.model_dump(
+            exclude={
+                "world": {"rng_seed"},
+                "agent": {"profiles": {"__all__": {"name"}}},
+            }
+        )
+    )
     world_seed = cfg.world.rng_seed
     run_spec_fingerprint = _fingerprint(
         {

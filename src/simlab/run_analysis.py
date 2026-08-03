@@ -359,10 +359,17 @@ def find_convergence_tick(
     not kernel parameters -- they say nothing about *why* a trajectory
     stabilized (agreement vs. correctness).
 
-    :raises ValueError: if ``window`` is less than 1.
+    :raises ValueError: if ``window`` is less than 1, or either threshold is
+        negative or non-finite.
     """
     if window < 1:
         raise ValueError(f"window must be >= 1, got {window}")
+    for name, value in (
+        ("delta_threshold", delta_threshold),
+        ("disagreement_threshold", disagreement_threshold),
+    ):
+        if not (math.isfinite(value) and value >= 0):
+            raise ValueError(f"{name} must be finite and >= 0, got {value}")
 
     stepped = [row for row in rows if row.tick >= 0]
     if len(stepped) < window:
@@ -404,6 +411,15 @@ def compute_run_summary(
     """
     if not telemetry:
         raise ValueError("telemetry must contain at least the initial row")
+    for name, value in (
+        ("convergence_delta_threshold", convergence_delta_threshold),
+        ("convergence_variance_threshold", convergence_variance_threshold),
+    ):
+        # Compared against measurements that are always finite and >= 0;
+        # a negative threshold makes consensus/convergence impossible, and
+        # NaN makes every comparison false, regardless of the trajectory.
+        if not (math.isfinite(value) and value >= 0):
+            raise ValueError(f"{name} must be finite and >= 0, got {value}")
     if not 0 <= truth_alignment_threshold <= 1:
         # Compared against fractions that are always in [0, 1]; out of range
         # makes final_truth_aligned/final_false_consensus unconditionally

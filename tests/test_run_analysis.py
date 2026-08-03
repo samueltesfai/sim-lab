@@ -422,6 +422,28 @@ def test_find_convergence_tick_rejects_nonpositive_window(bad_window):
         )
 
 
+def test_find_convergence_tick_rejects_invalid_thresholds():
+    """A negative or non-finite threshold would make every comparison
+    trivially true or false, independent of the trajectory."""
+    rows = [_row(0, mean_abs_delta=0.5, mean_claim_belief_variance=0.5)]
+
+    for bad in (-0.1, float("nan"), float("inf")):
+        with pytest.raises(ValueError, match="delta_threshold"):
+            find_convergence_tick(
+                rows,
+                delta_threshold=bad,
+                disagreement_threshold=0.0025,
+                window=1,
+            )
+        with pytest.raises(ValueError, match="disagreement_threshold"):
+            find_convergence_tick(
+                rows,
+                delta_threshold=0.001,
+                disagreement_threshold=bad,
+                window=1,
+            )
+
+
 def test_compute_run_summary_raises_on_empty_telemetry():
     with pytest.raises(ValueError):
         compute_run_summary([], total_runtime_ms=0.0)
@@ -588,6 +610,23 @@ def test_compute_run_summary_rejects_out_of_range_truth_alignment_threshold():
         with pytest.raises(ValueError, match="truth_alignment_threshold"):
             compute_run_summary(
                 [row], total_runtime_ms=0.0, truth_alignment_threshold=bad
+            )
+
+
+def test_compute_run_summary_rejects_invalid_convergence_thresholds():
+    """A negative variance threshold makes consensus/convergence
+    impossible, and NaN makes every comparison false, regardless of the
+    trajectory -- reject both up front instead of silently mislabeling."""
+    row = _row(-1)
+
+    for bad in (-0.1, float("nan"), float("inf")):
+        with pytest.raises(ValueError, match="convergence_delta_threshold"):
+            compute_run_summary(
+                [row], total_runtime_ms=0.0, convergence_delta_threshold=bad
+            )
+        with pytest.raises(ValueError, match="convergence_variance_threshold"):
+            compute_run_summary(
+                [row], total_runtime_ms=0.0, convergence_variance_threshold=bad
             )
 
 
