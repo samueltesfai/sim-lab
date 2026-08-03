@@ -123,13 +123,15 @@ custom validators (not `Field(ge=, le=)` metadata) or, for `agent.defaults`,
 by a pre-merge structural check that runs before the schema ever sees the
 config. These are listed here by hand:
 
-| Field                                | Rule                             |
-| ------------------------------------- | --------------------------------- |
-| `agent.defaults`                      | required                          |
-| `world.noise.{OBSERVE,HEAR,VERIFY}`   | present and `>= 0`                |
-| `world.truths.<id>`                   | value must be a boolean           |
-| `*.action_preference.<ACTION>`        | known action; value in `[0, 1]`   |
-| `*.action_cost.<ACTION>`              | known action; value `>= 0`        |
+| Field                                | Rule                                        |
+| ------------------------------------- | -------------------------------------------- |
+| `agent.defaults`                      | required                                     |
+| `agent.defaults`                      | must not contain `name` or `count`           |
+| `world.noise.{OBSERVE,HEAR,VERIFY}`   | present and `>= 0`                           |
+| `world.truths`                        | required, at least 1 claim                   |
+| `world.truths.<id>`                   | value must be a boolean                      |
+| `*.action_preference.<ACTION>`        | known action; value in `[0, 1]`              |
+| `*.action_cost.<ACTION>`              | known action; value `>= 0`                   |
 
 `observation`, `social`, `action_preference`, and `action_cost` rules apply to
 both `agent.defaults` and every profile node.

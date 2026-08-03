@@ -216,18 +216,18 @@ def _materialize_world_settings(cfg: dict) -> dict:
     :rtype: dict
     """
     world_cfg = cfg["world"]
-    observation_cfg = world_cfg.get("observation", {})
     return {
         "rng_seed": world_cfg["rng_seed"],
         "truths": dict(world_cfg["truths"]),
         "noise": {**_DEFAULT_WORLD_NOISE, **world_cfg.get("noise", {})},
+        # **-spread (not a hand-picked {"private_event_rate": ..., ...}
+        # reconstruction) so an unrecognized key -- e.g. a typo'd
+        # private_event_ratte -- survives into the merged result instead of
+        # being silently dropped before SimConfig's extra="forbid" ever sees
+        # it, mirroring how `noise` above already preserves unknown keys.
         "observation": {
-            "private_event_rate": observation_cfg.get(
-                "private_event_rate", _DEFAULT_WORLD_OBSERVATION["private_event_rate"]
-            ),
-            "global_event_rate": observation_cfg.get(
-                "global_event_rate", _DEFAULT_WORLD_OBSERVATION["global_event_rate"]
-            ),
+            **_DEFAULT_WORLD_OBSERVATION,
+            **world_cfg.get("observation", {}),
         },
     }
 

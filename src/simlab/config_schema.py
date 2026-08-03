@@ -161,7 +161,15 @@ class WorldObservation(_Strict):
 
 class WorldSection(_Strict):
     rng_seed: StrictInt
-    truths: dict[StrictInt, StrictBool]
+    # A world with zero claims can't validly run: World._generate_observation_events
+    # calls rng.choice(self.claims) whenever a private/global event fires, which
+    # raises IndexError on an empty list -- reproduced directly, and the crash can
+    # land several ticks in (whichever tick first rolls a hit against the
+    # event rate), not at construction. Rejecting empty truths at validation time
+    # (mirroring AgentSection.profiles' min_length=1) means every construction path
+    # (load_config, World.from_dict, or building a WorldSection by hand) is
+    # covered by this one check, not just the world.step() call site.
+    truths: dict[StrictInt, StrictBool] = Field(min_length=1)
     noise: dict[Literal["OBSERVE", "HEAR", "VERIFY"], StrictFloat] = Field(
         default_factory=lambda: {"OBSERVE": 0.0, "HEAR": 0.0, "VERIFY": 0.0}
     )

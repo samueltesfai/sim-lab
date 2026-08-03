@@ -503,6 +503,31 @@ def test_validate_config_rejects_unknown_top_level_setting():
         validate_config(config_dict)
 
 
+def test_validate_config_rejects_unknown_world_observation_key():
+    """A misspelled world.observation key (e.g. private_event_ratte) must be
+    rejected rather than silently dropped. _materialize_world_settings used
+    to reconstruct the observation dict field-by-field via hand-picked
+    .get() calls instead of a **-spread merge (unlike noise, which already
+    preserved unknown keys this way) -- an unrecognized key was discarded
+    before SimConfig's extra="forbid" ever saw it, and the run silently used
+    the default event rate instead."""
+    config_dict = {
+        "world": {
+            "rng_seed": 0,
+            "observation": {"private_event_ratte": 0.9, "global_event_rate": 0.0},
+            "truths": {0: True},
+            "noise": {"OBSERVE": 0.0, "HEAR": 0.0, "VERIFY": 0.0},
+        },
+        "agent": {
+            "defaults": {},
+            "profiles": [{"name": "default", "count": 1}],
+        },
+    }
+
+    with pytest.raises(ValueError, match=r"world\.observation\.private_event_ratte"):
+        validate_config(config_dict)
+
+
 def test_validate_config_rejects_unknown_setting_on_profile():
     """Unknown settings keys are also rejected on profile overrides, not
     just agent.defaults."""
@@ -831,6 +856,21 @@ def test_validate_config_rejects_mixed_type_truth_keys():
     mixed int/str dict keys."""
     cfg = _config([{"name": "default", "count": 1}])
     cfg["world"]["truths"] = {0: True, "1": False}
+
+    with pytest.raises(ValueError, match=r"world\.truths"):
+        validate_config(cfg)
+
+
+def test_validate_config_rejects_empty_truths():
+    """A world with zero claims can't validly run -- World._generate_observation_events
+    calls rng.choice(self.claims) whenever a private/global event fires,
+    which raises IndexError on an empty list. Reproduced directly before
+    this check existed: the crash landed mid-run (on whichever tick first
+    rolled a hit against the event rate), not at construction. Rejecting it
+    at validation time catches every construction path, not just
+    World.step()."""
+    cfg = _config([{"name": "default", "count": 1}])
+    cfg["world"]["truths"] = {}
 
     with pytest.raises(ValueError, match=r"world\.truths"):
         validate_config(cfg)
