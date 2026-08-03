@@ -523,6 +523,36 @@ def test_validate_config_rejects_unknown_world_observation_key():
         validate_config(config_dict)
 
 
+def test_validate_config_rejects_unknown_top_level_world_key():
+    """A stray top-level world key must be rejected, not silently dropped
+    by _materialize_world_settings only ever reading its four known keys."""
+    cfg = _config([{"name": "default", "count": 1}])
+    cfg["world"]["bogus_key"] = 123
+
+    with pytest.raises(ValueError, match=r"world\.bogus_key"):
+        validate_config(cfg)
+
+
+def test_validate_config_rejects_unknown_top_level_agent_key():
+    """A stray top-level agent key must be rejected, not silently dropped
+    by _materialize_config only ever reading agent.profiles."""
+    cfg = _config([{"name": "default", "count": 1}])
+    cfg["agent"]["bogus_key"] = 123
+
+    with pytest.raises(ValueError, match=r"agent\.bogus_key"):
+        validate_config(cfg)
+
+
+def test_validate_config_rejects_unknown_top_level_config_key():
+    """A stray top-level config key (outside world/agent) must be rejected,
+    not silently dropped by _materialize_config only ever reading world/agent."""
+    cfg = _config([{"name": "default", "count": 1}])
+    cfg["bogus_key"] = 123
+
+    with pytest.raises(ValueError, match=r"bogus_key"):
+        validate_config(cfg)
+
+
 def test_validate_config_rejects_unknown_setting_on_profile():
     """Unknown settings keys are also rejected on profile overrides, not
     just agent.defaults."""

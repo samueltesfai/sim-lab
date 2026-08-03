@@ -209,11 +209,12 @@ def _materialize_world_settings(cfg: dict) -> dict:
     """
     world_cfg = cfg["world"]
     return {
+        # Spread first so an unrecognized key still reaches extra="forbid";
+        # explicit keys below still win.
+        **world_cfg,
         "rng_seed": world_cfg["rng_seed"],
         "truths": dict(world_cfg["truths"]),
         "noise": {**_DEFAULT_WORLD_NOISE, **world_cfg.get("noise", {})},
-        # **-spread, not hand-picked keys, so an unrecognized key still
-        # reaches extra="forbid" instead of being silently dropped here.
         "observation": {
             **_DEFAULT_WORLD_OBSERVATION,
             **world_cfg.get("observation", {}),
@@ -236,9 +237,15 @@ def _materialize_config(cfg: dict) -> dict:
     :return: The fully effective configuration, keyed like the source YAML
     :rtype: dict
     """
+    # Spread cfg/agent first so an unrecognized key at either level still
+    # reaches extra="forbid"; explicit keys below still win. "defaults" is
+    # deliberately excluded -- it's fully consumed by _materialize_agent_
+    # profiles, not part of the validated shape.
+    agent_extra = {k: v for k, v in cfg["agent"].items() if k != "defaults"}
     return {
+        **cfg,
         "world": _materialize_world_settings(cfg),
-        "agent": {"profiles": _materialize_agent_profiles(cfg)},
+        "agent": {**agent_extra, "profiles": _materialize_agent_profiles(cfg)},
     }
 
 
