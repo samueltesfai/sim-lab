@@ -1,6 +1,6 @@
-"""Small internal utilities shared across simlab's own modules (config.py,
-agent.py, world.py) that can't live in any one of them without creating a
-circular import or an unwanted dependency direction between them.
+"""``deep_merge``, shared by config.py/agent.py/world.py -- lives here rather
+than in any one of them to avoid a circular import or an unwanted
+dependency direction between them.
 """
 
 from __future__ import annotations

@@ -3,7 +3,7 @@ import os
 import yaml
 from pydantic import ValidationError
 
-from simlab._internal import deep_merge
+from simlab._merge import deep_merge
 from simlab.agent import Agent
 from simlab.config_schema import (
     AgentProfile,
