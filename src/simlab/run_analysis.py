@@ -459,12 +459,6 @@ def compute_run_summary(
     final_confidently_wrong = (
         final_row.fraction_confident_wrong >= truth_alignment_threshold
     )
-    # A shared threshold below 0.5 lets fraction_truth_aligned and
-    # fraction_confident_wrong both clear it at once (e.g. 0.5/0.5 split
-    # across claims), which would otherwise mark the run both truth-aligned
-    # and falsely converged -- `final_false_consensus` requires the final
-    # state not already be counted as truth-aligned.
-
     return RunSummary(
         initial_mean_truth_error=initial_row.mean_abs_error_to_truth,
         initial_fraction_truth_aligned=initial_row.fraction_truth_aligned,
@@ -508,6 +502,7 @@ def compute_run_summary(
         converged=convergence_tick is not None,
         final_consensus=final_consensus,
         final_truth_aligned=final_truth_aligned,
+        # threshold <= 0.5 lets both fractions clear it at once otherwise
         final_false_consensus=(
             final_consensus and final_confidently_wrong and not final_truth_aligned
         ),

@@ -132,10 +132,7 @@ def write_run_artifacts(
 
         backup_dir = None
         if overwrite and os.path.exists(final_dir):
-            # Move the previous run aside instead of deleting it outright:
-            # if the rename below fails, or the process dies before it
-            # runs, the previous complete run is still recoverable instead
-            # of already gone.
+            # rename, not delete: a failed swap-in must stay recoverable
             backup_dir = os.path.join(output_dir, f".{run_id}-prev-{uuid.uuid4().hex}")
             os.rename(final_dir, backup_dir)
 
