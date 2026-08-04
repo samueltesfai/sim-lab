@@ -140,12 +140,8 @@ def execute_run(request: RunRequest) -> RunResult:
     cfg = load_config(request.config_path)
     world = world_from_config(cfg)
     resolved_config: dict[str, Any] = cfg.model_dump()
-    # world_from_config only ever consumes the flattened per-agent settings
-    # list (expand_agent_specs), never the raw profile boundaries -- so two
-    # configs that flatten to the same ordered settings list (e.g. one
-    # profile of count=2 vs two profiles of count=1 with identical
-    # settings, or a renamed profile) must fingerprint identically too.
-    # name/count are per-profile bookkeeping, not per-agent settings.
+    # world_from_config only consumes the flattened per-agent list, never
+    # profile boundaries -- fingerprint that, not the raw profile list
     per_agent_settings = [
         profile.model_dump(exclude={"name", "count"})
         for profile in expand_agent_specs(cfg)
