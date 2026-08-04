@@ -125,9 +125,16 @@ def write_run_artifacts(
     tmp_dir = tempfile.mkdtemp(prefix=f".{run_id}-", dir=output_dir)
     try:
         with open(os.path.join(tmp_dir, "manifest.json"), "w", encoding="utf-8") as f:
-            json.dump(_build_manifest(result), f, indent=2, sort_keys=True)
+            # allow_nan=False: an inf/nan here would otherwise silently
+            # write the non-standard tokens Infinity/NaN, which most JSON
+            # parsers besides Python's own reject.
+            json.dump(
+                _build_manifest(result), f, indent=2, sort_keys=True, allow_nan=False
+            )
         with open(os.path.join(tmp_dir, "summary.json"), "w", encoding="utf-8") as f:
-            json.dump(_build_summary_doc(result), f, indent=2, sort_keys=True)
+            json.dump(
+                _build_summary_doc(result), f, indent=2, sort_keys=True, allow_nan=False
+            )
         _write_trajectory_csv(result.telemetry, os.path.join(tmp_dir, "trajectory.csv"))
 
         backup_dir = None

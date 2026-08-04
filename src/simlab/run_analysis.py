@@ -21,7 +21,10 @@ def _mean_std(values: list[float]) -> tuple[float, float]:
         return 0.0, 0.0
     n = len(values)
     mean = sum(values) / n
-    var = sum((v - mean) ** 2 for v in values) / n
+    # `**2` raises OverflowError on a finite-but-extreme value where `*`
+    # would just return inf -- schema-permitted large settings shouldn't
+    # crash aggregation.
+    var = sum((v - mean) * (v - mean) for v in values) / n
     return mean, math.sqrt(var)
 
 
@@ -90,8 +93,14 @@ def _weighted_mean_std(
     if not total:
         return 0.0, 0.0
     mean = sum(value * weight for value, weight in values_with_weights) / total
+    # `**2` raises OverflowError on a finite-but-extreme value where `*`
+    # would just return inf -- schema-permitted large settings shouldn't
+    # crash aggregation.
     var = (
-        sum(weight * (value - mean) ** 2 for value, weight in values_with_weights)
+        sum(
+            weight * (value - mean) * (value - mean)
+            for value, weight in values_with_weights
+        )
         / total
     )
     return mean, math.sqrt(var)

@@ -196,6 +196,40 @@ def test_write_run_artifacts_leaves_no_partial_output_on_failure(
     assert os.listdir(str(tmp_path)) == []
 
 
+def test_write_run_artifacts_rejects_non_finite_scenario_feature(config_path, tmp_path):
+    """Two profiles with the same-sign, schema-valid-but-extreme action_cost
+    silently overflow to inf during aggregation. json.dump's default
+    allow_nan=True would otherwise write the non-standard token `Infinity`
+    into summary.json -- most JSON parsers besides Python's own reject
+    that. Writing must fail loudly instead, leaving no partial output."""
+    overflow_config = {
+        **CONFIG_DICT,
+        "agent": {
+            "defaults": {},
+            "profiles": [
+                {"name": "a", "count": 1, "action_cost": {"VERIFY": 1e308}},
+                {"name": "b", "count": 1, "action_cost": {"VERIFY": 1e308}},
+            ],
+        },
+    }
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+        yaml.dump(overflow_config, f)
+        overflow_path = f.name
+
+    try:
+        result = execute_run(
+            RunRequest(config_path=overflow_path, steps=1, run_id="overflow-run")
+        )
+        assert result.scenario["agent_action_cost.VERIFY_mean"] == float("inf")
+
+        with pytest.raises(ValueError, match="JSON compliant"):
+            write_run_artifacts(result, str(tmp_path))
+
+        assert os.listdir(str(tmp_path)) == []
+    finally:
+        os.unlink(overflow_path)
+
+
 @pytest.mark.parametrize(
     "bad_run_id", [".", "..", "../evil", "sub/dir", "sub/../../evil"]
 )

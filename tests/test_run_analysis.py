@@ -309,6 +309,27 @@ def test_agent_parameter_features_empty_profiles_does_not_crash():
     assert features["agent_update_trust_on_rejection_fraction"] == 0.0
 
 
+def test_agent_parameter_features_extreme_finite_value_does_not_overflow():
+    """action_cost only has a lower bound (>= 0), so a finite-but-extreme
+    value like 1e308 is schema-valid. `(value - mean) ** 2` raises
+    OverflowError for such values even though `*` would just return inf --
+    aggregation must use the latter so a valid config can't crash
+    extract_scenario_features."""
+    world, resolved_config = _build_scenario(
+        [
+            {"name": "a", "count": 1, "action_cost": {"VERIFY": 0.0}},
+            {"name": "b", "count": 1, "action_cost": {"VERIFY": 1e308}},
+        ]
+    )
+    telemetry = Telemetry()
+    initial_row = telemetry.record_initial(world)
+
+    features = extract_scenario_features(world, initial_row, resolved_config)
+
+    assert features["agent_action_cost.VERIFY_mean"] == pytest.approx(5e307)
+    assert features["agent_action_cost.VERIFY_std"] == float("inf")
+
+
 # ---------------------------------------------------------------------------
 # find_convergence_tick / compute_run_summary
 # ---------------------------------------------------------------------------
