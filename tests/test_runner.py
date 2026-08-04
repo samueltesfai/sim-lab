@@ -416,6 +416,41 @@ def test_execute_run_scenario_fingerprint_ignores_profile_name(config_path):
         os.unlink(renamed_path)
 
 
+def test_execute_run_scenario_fingerprint_ignores_profile_partition(config_path):
+    """world_from_config only ever consumes the flattened per-agent settings
+    list, never the raw profile boundaries -- so splitting one profile of
+    count=5 into five profiles of count=1 each (identical settings) must
+    fingerprint identically and produce identical simulation results, even
+    though the serialized profile list has a different shape/length."""
+    split_config = {
+        **CONFIG_DICT,
+        "agent": {
+            **CONFIG_DICT["agent"],
+            "profiles": [{"name": f"default-{i}", "count": 1} for i in range(5)],
+        },
+    }
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+        yaml.dump(split_config, f)
+        split_path = f.name
+
+    try:
+        original_result = execute_run(RunRequest(config_path=config_path, steps=1))
+        split_result = execute_run(RunRequest(config_path=split_path, steps=1))
+
+        assert (
+            original_result.metadata.scenario_fingerprint
+            == split_result.metadata.scenario_fingerprint
+        )
+        original_rows = [row.to_dict() for row in original_result.telemetry]
+        split_rows = [row.to_dict() for row in split_result.telemetry]
+        for original_row, split_row in zip(original_rows, split_rows):
+            original_row.pop("step_runtime_ms")
+            split_row.pop("step_runtime_ms")
+        assert original_rows == split_rows
+    finally:
+        os.unlink(split_path)
+
+
 def test_execute_run_scenario_matches_world(config_path):
     result = execute_run(RunRequest(config_path=config_path, steps=1))
     scenario = result.scenario

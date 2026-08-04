@@ -9,6 +9,7 @@ from time import perf_counter
 from typing import Any
 
 from simlab.config import (
+    expand_agent_specs,
     world_from_config,
     load_config,
 )
@@ -139,15 +140,21 @@ def execute_run(request: RunRequest) -> RunResult:
     cfg = load_config(request.config_path)
     world = world_from_config(cfg)
     resolved_config: dict[str, Any] = cfg.model_dump()
-    # profiles[*].name is reporting-only (no RNG seed, network position, or
-    # setting derives from it), so a pure rename must fingerprint identically.
+    # world_from_config only ever consumes the flattened per-agent settings
+    # list (expand_agent_specs), never the raw profile boundaries -- so two
+    # configs that flatten to the same ordered settings list (e.g. one
+    # profile of count=2 vs two profiles of count=1 with identical
+    # settings, or a renamed profile) must fingerprint identically too.
+    # name/count are per-profile bookkeeping, not per-agent settings.
+    per_agent_settings = [
+        profile.model_dump(exclude={"name", "count"})
+        for profile in expand_agent_specs(cfg)
+    ]
     scenario_fingerprint = _fingerprint(
-        cfg.model_dump(
-            exclude={
-                "world": {"rng_seed"},
-                "agent": {"profiles": {"__all__": {"name"}}},
-            }
-        )
+        {
+            "world": cfg.world.model_dump(exclude={"rng_seed"}),
+            "agents": per_agent_settings,
+        }
     )
     world_seed = cfg.world.rng_seed
     run_spec_fingerprint = _fingerprint(

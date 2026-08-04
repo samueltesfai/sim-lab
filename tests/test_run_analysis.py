@@ -552,9 +552,24 @@ def test_compute_run_summary_min_max_truth_error_over_trajectory():
 
     summary = compute_run_summary([initial, *steps], total_runtime_ms=0.0)
 
-    # Initial row is excluded from the trajectory min/max window.
+    # The initial row is part of the trajectory (same as AUC), so it's
+    # eligible to set either extremum.
     assert summary.min_mean_truth_error == 0.2
-    assert summary.max_mean_truth_error == 0.6
+    assert summary.max_mean_truth_error == 0.9
+
+
+def test_compute_run_summary_max_truth_error_can_come_from_initial_row():
+    """A one-step run improving from 0.9 to 0.1 must report 0.9 as the max,
+    not 0.1 -- the initial row is part of the trajectory (it's already
+    included in the AUC), so excluding it from min/max would under-report
+    how bad the run ever got."""
+    initial = _row(-1, mean_abs_error_to_truth=0.9)
+    step = _row(0, mean_abs_error_to_truth=0.1)
+
+    summary = compute_run_summary([initial, step], total_runtime_ms=0.0)
+
+    assert summary.min_mean_truth_error == 0.1
+    assert summary.max_mean_truth_error == 0.9
 
 
 def test_compute_run_summary_auc_includes_initial_to_first_step_interval():

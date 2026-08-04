@@ -482,12 +482,8 @@ def compute_run_summary(
         final_fraction_confident_wrong=final_row.fraction_confident_wrong,
         final_mean_trust=final_row.mean_trust,
         final_trust_std=final_row.trust_std,
-        min_mean_truth_error=(
-            min(truth_errors) if truth_errors else initial_row.mean_abs_error_to_truth
-        ),
-        max_mean_truth_error=(
-            max(truth_errors) if truth_errors else initial_row.mean_abs_error_to_truth
-        ),
+        min_mean_truth_error=min(truth_error_trajectory),
+        max_mean_truth_error=max(truth_error_trajectory),
         mean_truth_error_auc=_trapezoidal_mean(truth_error_trajectory),
         mean_belief_volatility=_mean(deltas),
         max_belief_volatility=max(deltas) if deltas else 0.0,
