@@ -47,6 +47,35 @@ from pydantic import (
 
 ActionName = Literal["IDLE", "VERIFY", "COMMUNICATE", "BROADCAST"]
 
+# Single reference table for every kernel default -- grep here instead of
+# browsing each settings class below. Constraints (ge=/le=) stay on the
+# field declarations, since a constant can't carry them.
+_DEFAULT_OBSERVATION_ATTENTION = 1.0
+_DEFAULT_OBSERVATION_BIAS = 0.0
+_DEFAULT_TRUST = 0.5
+_DEFAULT_SOCIAL_CONFIDENCE_BOUND = 1.0
+_DEFAULT_SOCIAL_TRUST_UPDATE_RATE = 0.0
+_DEFAULT_SOCIAL_UPDATE_TRUST_ON_REJECTION = True
+_DEFAULT_LEARNING_RATE = 0.1
+_DEFAULT_LEARNING_OBSERVE_WEIGHT = 0.6
+_DEFAULT_LEARNING_HEAR_WEIGHT = 0.3
+_DEFAULT_LEARNING_VERIFY_WEIGHT = 1.0
+_DEFAULT_ACTION_PREFERENCE = {
+    "IDLE": 0.0,
+    "VERIFY": 0.9,
+    "COMMUNICATE": 0.7,
+    "BROADCAST": 0.5,
+}
+_DEFAULT_ACTION_COST = {
+    "IDLE": 0.0,
+    "VERIFY": 0.35,
+    "COMMUNICATE": 0.15,
+    "BROADCAST": 0.30,
+}
+_DEFAULT_WORLD_PRIVATE_EVENT_RATE = 0.1
+_DEFAULT_WORLD_GLOBAL_EVENT_RATE = 0.0
+_DEFAULT_NOISE = {"OBSERVE": 0.0, "HEAR": 0.0, "VERIFY": 0.0}
+
 
 class _Strict(BaseModel):
     """``allow_inf_nan=False`` rejects ``NaN``/``Infinity`` model-wide --
@@ -68,39 +97,27 @@ def _validate_cost_range(v: dict[str, float]) -> dict[str, float]:
 
 
 class ObservationSettings(_Strict):
-    attention: StrictFloat = Field(1.0, ge=0, le=1)
-    bias: StrictFloat = Field(0.0, ge=-1, le=1)
+    attention: StrictFloat = Field(_DEFAULT_OBSERVATION_ATTENTION, ge=0, le=1)
+    bias: StrictFloat = Field(_DEFAULT_OBSERVATION_BIAS, ge=-1, le=1)
 
 
 class TrustSettings(_Strict):
-    default: StrictFloat = 0.5
+    default: StrictFloat = _DEFAULT_TRUST
 
 
 class SocialSettings(_Strict):
-    confidence_bound: StrictFloat = Field(1.0, ge=0, le=1)
-    trust_update_rate: StrictFloat = Field(0.0, ge=0, le=1)
-    update_trust_on_rejection: StrictBool = True
+    confidence_bound: StrictFloat = Field(_DEFAULT_SOCIAL_CONFIDENCE_BOUND, ge=0, le=1)
+    trust_update_rate: StrictFloat = Field(
+        _DEFAULT_SOCIAL_TRUST_UPDATE_RATE, ge=0, le=1
+    )
+    update_trust_on_rejection: StrictBool = _DEFAULT_SOCIAL_UPDATE_TRUST_ON_REJECTION
 
 
 class LearningSettings(_Strict):
-    rate: StrictFloat = 0.1
-    observe_weight: StrictFloat = 0.6
-    hear_weight: StrictFloat = 0.3
-    verify_weight: StrictFloat = 1.0
-
-
-_DEFAULT_ACTION_PREFERENCE = {
-    "IDLE": 0.0,
-    "VERIFY": 0.9,
-    "COMMUNICATE": 0.7,
-    "BROADCAST": 0.5,
-}
-_DEFAULT_ACTION_COST = {
-    "IDLE": 0.0,
-    "VERIFY": 0.35,
-    "COMMUNICATE": 0.15,
-    "BROADCAST": 0.30,
-}
+    rate: StrictFloat = _DEFAULT_LEARNING_RATE
+    observe_weight: StrictFloat = _DEFAULT_LEARNING_OBSERVE_WEIGHT
+    hear_weight: StrictFloat = _DEFAULT_LEARNING_HEAR_WEIGHT
+    verify_weight: StrictFloat = _DEFAULT_LEARNING_VERIFY_WEIGHT
 
 
 class AgentSettings(_Strict):
@@ -169,11 +186,10 @@ class AgentSection(_Strict):
 
 
 class WorldObservation(_Strict):
-    private_event_rate: StrictFloat = Field(0.1, ge=0, le=1)
-    global_event_rate: StrictFloat = Field(0.0, ge=0, le=1)
-
-
-_DEFAULT_NOISE = {"OBSERVE": 0.0, "HEAR": 0.0, "VERIFY": 0.0}
+    private_event_rate: StrictFloat = Field(
+        _DEFAULT_WORLD_PRIVATE_EVENT_RATE, ge=0, le=1
+    )
+    global_event_rate: StrictFloat = Field(_DEFAULT_WORLD_GLOBAL_EVENT_RATE, ge=0, le=1)
 
 
 class WorldSection(_Strict):
