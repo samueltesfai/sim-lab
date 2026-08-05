@@ -52,7 +52,7 @@ def test_main_with_real_config_loading():
         with patch("simlab.main.run_viz") as mock_run_viz:
             with patch(
                 "sys.argv",
-                ["python -m simlab", "--config", config_path, "--steps", "2"],
+                ["simlab-viz", "--config", config_path, "--steps", "2"],
             ):
                 main()
 
@@ -122,7 +122,7 @@ def test_main_telemetry_export_integration():
                 with patch(
                     "sys.argv",
                     [
-                        "python -m simlab",
+                        "simlab-viz",
                         "--config",
                         config_path,
                         "--steps",
@@ -179,6 +179,6 @@ def test_main_handles_run_viz_exceptions(mock_load_config, mock_run_viz):
     # Test that exceptions from run_viz are propagated
     mock_run_viz.side_effect = RuntimeError("Visualization error")
 
-    with patch("sys.argv", ["python -m simlab", "--steps", "1"]):
+    with patch("sys.argv", ["simlab-viz", "--steps", "1"]):
         with pytest.raises(RuntimeError, match="Visualization error"):
             main()

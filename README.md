@@ -61,7 +61,7 @@ pip install -e .
 ```
 
 This installs two commands, `simlab-viz` and `simlab-run` (equivalently runnable as
-`python -m simlab` and `python -m simlab.runner`). Pass `-h` to either for the full
+`python -m simlab.main` and `python -m simlab.runner`). Pass `-h` to either for the full
 list of flags.
 
 ### Visualization
