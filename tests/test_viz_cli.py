@@ -5,7 +5,7 @@ import yaml
 from unittest.mock import patch
 
 from simlab.config import validate_config
-from simlab.main import main
+from simlab.viz_cli import main
 
 
 def create_test_config_file(config_dict: dict) -> str:
@@ -49,7 +49,7 @@ def test_main_with_real_config_loading():
     config_path = create_test_config_file(config_dict)
 
     try:
-        with patch("simlab.main.run_viz") as mock_run_viz:
+        with patch("simlab.viz_cli.run_viz") as mock_run_viz:
             with patch(
                 "sys.argv",
                 ["simlab-viz", "--config", config_path, "--steps", "2"],
@@ -107,7 +107,7 @@ def test_main_telemetry_export_integration():
         jsonl_path = os.path.join(temp_dir, "test.jsonl")
 
         try:
-            with patch("simlab.main.run_viz") as mock_run_viz:
+            with patch("simlab.viz_cli.run_viz") as mock_run_viz:
                 # Simulate run_viz that actually records some telemetry
                 def simulate_run_viz(world, steps, telemetry, **kwargs):
                     # Record initial state
@@ -155,8 +155,8 @@ def test_main_telemetry_export_integration():
             os.unlink(config_path)
 
 
-@patch("simlab.main.run_viz")
-@patch("simlab.main.load_config")
+@patch("simlab.viz_cli.run_viz")
+@patch("simlab.viz_cli.load_config")
 def test_main_handles_run_viz_exceptions(mock_load_config, mock_run_viz):
     """Test that main properly handles exceptions from run_viz."""
     mock_cfg = {

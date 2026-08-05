@@ -14,7 +14,7 @@ dependencies = [
 
 [project.scripts]
 simlab-run = "simlab.runner:main"
-simlab-viz = "simlab.main:main"
+simlab-viz = "simlab.viz_cli:main"
 
 [dependency-groups]
 dev = [
