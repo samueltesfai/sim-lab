@@ -127,7 +127,7 @@ config. These are listed here by hand:
 | ------------------------------------- | -------------------------------------------- |
 | `agent.defaults`                      | required                                     |
 | `agent.defaults`                      | must not contain `name` or `count`           |
-| `world.noise.{OBSERVE,HEAR,VERIFY}`   | present and `>= 0`                           |
+| `world.noise.{OBSERVE,HEAR,VERIFY}`   | omitted channels default to `0.0`; provided values must be `>= 0` |
 | `world.truths`                        | required, at least 1 claim                   |
 | `world.truths.<id>`                   | value must be a boolean                      |
 | `*.action_preference.<ACTION>`        | known action; value in `[0, 1]`              |
