@@ -4,7 +4,7 @@ drift from the actual schema.
 
 Run directly to regenerate docs/config.md in place:
 
-    uv run python scripts/generate_config_skeleton.py
+    python scripts/generate_config_skeleton.py
 
 ``render_skeleton()``/``render_validation_rules()`` are also imported by
 tests/test_config_docs.py, which fails if the committed doc doesn't match
