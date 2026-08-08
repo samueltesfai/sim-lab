@@ -20,7 +20,9 @@ def _mean_std(values: list[float]) -> tuple[float, float]:
     if not values:
         return 0.0, 0.0
     n = len(values)
-    mean = sum(values) / n
+    # Divide before summing: summing extreme-but-finite values first (then
+    # dividing by n) can overflow to inf even though the true mean doesn't.
+    mean = sum(v / n for v in values)
     # `**2` raises OverflowError on a finite-but-extreme value where `*`
     # would just return inf -- schema-permitted large settings shouldn't
     # crash aggregation.
@@ -92,7 +94,9 @@ def _weighted_mean_std(
     total = sum(weight for _, weight in values_with_weights)
     if not total:
         return 0.0, 0.0
-    mean = sum(value * weight for value, weight in values_with_weights) / total
+    # Divide before summing (see _mean_std): summing weight*value first can
+    # overflow to inf even when the true weighted mean doesn't.
+    mean = sum(value * (weight / total) for value, weight in values_with_weights)
     # `**2` raises OverflowError on a finite-but-extreme value where `*`
     # would just return inf -- schema-permitted large settings shouldn't
     # crash aggregation.

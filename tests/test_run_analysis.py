@@ -330,6 +330,27 @@ def test_agent_parameter_features_extreme_finite_value_does_not_overflow():
     assert features["agent_action_cost.VERIFY_std"] == float("inf")
 
 
+def test_agent_parameter_features_equal_extreme_values_stay_finite():
+    """Two profiles with the *same* extreme action_cost (1e308) have a
+    genuinely finite weighted mean (1e308) and zero spread -- summing
+    value*weight before dividing by the total overflowed this to inf even
+    though the true aggregate is representable. Reproduced directly before
+    fixing _weighted_mean_std to divide by the total before summing."""
+    world, resolved_config = _build_scenario(
+        [
+            {"name": "a", "count": 1, "action_cost": {"VERIFY": 1e308}},
+            {"name": "b", "count": 1, "action_cost": {"VERIFY": 1e308}},
+        ]
+    )
+    telemetry = Telemetry()
+    initial_row = telemetry.record_initial(world)
+
+    features = extract_scenario_features(world, initial_row, resolved_config)
+
+    assert features["agent_action_cost.VERIFY_mean"] == pytest.approx(1e308)
+    assert features["agent_action_cost.VERIFY_std"] == 0.0
+
+
 # ---------------------------------------------------------------------------
 # find_convergence_tick / compute_run_summary
 # ---------------------------------------------------------------------------
