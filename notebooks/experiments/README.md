@@ -46,4 +46,4 @@ lands.
 
 | Date | Notebook | Kernel commit | Finding |
 |---|---|---|---|
-| 2026-08-08 | [baseline-behavior-sweep](2026-08-08-baseline-behavior-sweep.ipynb) | `8d8e5bf` | With any truth-grounded channel present, the kernel converges to truth-aligned consensus in 100% of 290 runs across a broad OFAT + interaction grid; social parameters (bounded confidence, dynamic trust) are mechanically active but outcome-dormant in that regime, and only produce persistent disagreement once the truth-grounded channel is removed entirely. |
+| 2026-08-08 | [baseline-behavior-sweep](2026-08-08-baseline-behavior-sweep.ipynb) | `8d8e5bf` | With any truth-grounded channel present, the kernel converges to truth-aligned consensus in 100% of 240 runs across a broad OFAT + interaction grid; social parameters (bounded confidence, dynamic trust) are mechanically active but outcome-dormant in that regime, and only produce persistent disagreement once the truth-grounded channel is removed entirely. |
