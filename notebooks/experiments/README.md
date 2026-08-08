@@ -24,12 +24,15 @@ calls for them.
 ## The `kernel_commit_on_main` rule
 
 Every notebook's reproducibility header checks whether the most recent
-commit touching `src/simlab` is reachable from `main`, and prints a loud
-warning if not. **Only commit a dated notebook to this directory once that
-check prints `True`.** A notebook attributed to kernel code still sitting on
-an unmerged branch references code that can be rebased, squashed, or
+commit touching `src/simlab` is reachable from `main`, and that `src/simlab`
+itself has no uncommitted changes, printing a loud warning if either fails.
+**Only commit a dated notebook to this directory once `kernel_commit_on_main`
+prints `True`.** A notebook attributed to kernel code still sitting on an
+unmerged branch references code that can be rebased, squashed, or
 force-pushed away -- silently invalidating what the notebook claims to have
-measured. The check deliberately looks at the kernel code's own last commit,
+measured; an uncommitted edit under `src/simlab` is the same problem one step
+earlier, since `git log` only sees committed history and wouldn't reflect it
+at all. The check deliberately looks at the kernel code's own last commit,
 not `HEAD` (which also includes the notebook's own not-yet-merged commit and
 would make the check impossible to satisfy before its own PR merges).
 
