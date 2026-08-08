@@ -146,6 +146,48 @@ agent:
         os.unlink(config_path)
 
 
+def test_load_config_rejects_repeated_merge_key():
+    """Two literal `<<` keys in the same mapping isn't a documented YAML
+    construct -- PyYAML accepts it anyway and lets the later merge key
+    silently win on any field the two sources disagree on. That's exactly
+    the kind of silent, order-dependent surprise the duplicate-key guard
+    exists to catch, so it should be rejected like any other repeated key
+    (a genuine multi-source merge should use `<<: [*a, *b]` instead)."""
+    text = """
+world:
+  rng_seed: 0
+  observation:
+    private_event_rate: 0.1
+    global_event_rate: 0.0
+  truths:
+    0: true
+agent:
+  defaults: {}
+  profiles:
+    - name: default
+      count: 1
+      observation: &first
+        attention: 0.5
+        bias: 0.0
+    - name: other
+      count: 1
+      observation:
+        <<: *first
+        <<: *first
+"""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+        f.write(text)
+        config_path = f.name
+
+    try:
+        with pytest.raises(
+            yaml.constructor.ConstructorError, match="duplicate merge key"
+        ):
+            load_config(config_path)
+    finally:
+        os.unlink(config_path)
+
+
 def test_validate_config_success():
     """Test config validation with valid config."""
     config_dict = {

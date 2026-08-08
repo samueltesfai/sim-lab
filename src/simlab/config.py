@@ -21,10 +21,22 @@ class _UniqueKeyLoader(yaml.SafeLoader):
 
     def construct_mapping(self, node, deep=False):
         seen: set[object] = set()
+        seen_merge_key = False
         for key_node, _ in node.value:
             # merge key isn't constructible yet; overriding a merged-in
-            # default is expected, not a duplicate
+            # default is expected, not a duplicate. A single merge key can
+            # still carry multiple anchors (`<<: [*a, *b]`); it's a second
+            # literal `<<` in the same mapping that's ambiguous -- PyYAML
+            # lets the later one silently win on overlapping fields.
             if key_node.tag == "tag:yaml.org,2002:merge":
+                if seen_merge_key:
+                    raise yaml.constructor.ConstructorError(
+                        "while constructing a mapping",
+                        node.start_mark,
+                        "found duplicate merge key: '<<'",
+                        key_node.start_mark,
+                    )
+                seen_merge_key = True
                 continue
             key = self.construct_object(key_node, deep=deep)
             if key in seen:
