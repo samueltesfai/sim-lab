@@ -5,7 +5,6 @@ import json
 import os
 import shutil
 import tempfile
-import uuid
 from collections.abc import Sequence
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -137,32 +136,23 @@ def write_run_artifacts(
             )
         _write_trajectory_csv(result.telemetry, os.path.join(tmp_dir, "trajectory.csv"))
 
-        backup_dir = None
         if overwrite and os.path.exists(final_dir):
-            # rename, not delete: a failed swap-in must stay recoverable
-            backup_dir = os.path.join(output_dir, f".{run_id}-prev-{uuid.uuid4().hex}")
-            os.rename(final_dir, backup_dir)
+            shutil.rmtree(final_dir)
 
         try:
             os.rename(tmp_dir, final_dir)
         except OSError as exc:
-            # os.rename() refuses to land on a non-empty directory, so if a
-            # concurrent writer populated final_dir between our check above
-            # and this rename, that's what we land here for -- confirm that
-            # is really what happened (rather than assuming any OSError
-            # means a lost race) before reporting it as a collision.
-            if backup_dir is not None and not os.path.exists(final_dir):
-                os.rename(backup_dir, final_dir)
-                backup_dir = None
+            # os.rename() refuses to land on a non-empty directory, so an
+            # OSError here with overwrite=False and final_dir now present
+            # means a concurrent writer populated it since the check above
+            # -- anything else (disk full, permissions, ...) isn't a
+            # collision and must surface as-is.
             if not overwrite and os.path.exists(final_dir):
                 raise FileExistsError(
                     f"Run directory already exists: {final_dir} "
                     "(pass overwrite=True to replace it)"
                 ) from exc
             raise
-        else:
-            if backup_dir is not None:
-                shutil.rmtree(backup_dir, ignore_errors=True)
     except BaseException:
         shutil.rmtree(tmp_dir, ignore_errors=True)
         raise
