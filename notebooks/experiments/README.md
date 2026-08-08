@@ -10,16 +10,31 @@ without digging through git blame on a single mutated file.
 
 ## Starting a new investigation
 
-Copy `_template.ipynb` to `<date>-<slug>.ipynb`, resolve every `[[FILL: ...]]`
-marker (code cells use `# EDIT:` comments for the same purpose), run it end-
-to-end, then add a row to the index below. The static text around those
-markers is intentionally the same in every notebook in this series -- it's
-generated from one shared source, not hand-copied, so it can't drift between
-investigations. `_template.ipynb` itself stays blank (no outputs, no
-`[[FILL:]]` markers resolved) so it's always a clean starting point; a dated
-notebook may also add its own extra sections beyond the template (e.g. an
-interaction grid or mechanism-activation diagnostics) where the investigation
-calls for them.
+There's no template to copy. Each notebook answers its own question and is
+free to structure itself however that requires -- which diagnostics to run,
+in what order, with what commentary. What's shared across investigations is
+the mechanical, non-narrative code, and that lives in `simlab.sweep` instead
+of being reimplemented (or silently redone slightly wrong) per notebook:
+
+- `reproducibility_header(experiment_name)` -- call this first; see the rule
+  below.
+- `expand_ofat_scenarios(baseline_cfg, axes)` / `run_sweep(scenarios, seeds,
+  steps)` -- build and execute a sweep.
+- `between_scenario_variance_share(df, metric)` -- scenario-vs-seed variance
+  decomposition.
+- `predictability_probe(df, feature_cols, regression_targets, binary_target)`
+  -- grouped-CV linear/random-forest probe. Requires the `notebook` uv
+  dependency group (`uv run --group notebook ...`); scikit-learn is a lazy
+  import inside it, not a core dependency of the package.
+- `plot_variance_shares` / `plot_parameter_response` / `plot_predictability`
+  -- matching plots.
+
+See `2026-08-08-baseline-behavior-sweep.ipynb` for a worked example, or
+`src/simlab/sweep.py` for full function docs. If a new investigation needs a
+pattern that isn't in there yet (e.g. Latin-hypercube sampling instead of
+OFAT), write it in the notebook first -- only promote it into `simlab.sweep`
+once a second notebook actually needs the same thing, so the module doesn't
+accumulate speculative generality ahead of real reuse.
 
 ## The `kernel_commit_on_main` rule
 
