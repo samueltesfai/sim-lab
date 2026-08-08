@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-from collections import defaultdict
 import random
+from collections import defaultdict
 
+from simlab._merge import deep_merge
 from simlab.agent import Agent
-from simlab.types import (
+from simlab.config_schema import WorldSection
+from simlab.kernel_types import (
     Action,
     ActionTrace,
     ActionType,
@@ -14,32 +16,26 @@ from simlab.types import (
     clamp,
 )
 
+_DEFAULT_WORLD_NOISE: dict = WorldSection.model_fields["noise"].get_default(
+    call_default_factory=True
+)
+
 
 class World:
-    def __init__(
-        self,
-        agents: list[Agent],
-        truths: dict[int, bool],
-        rng_seed: int = 0,
-        noise: dict[MemoryType, float] | None = None,
-        private_event_rate: float = 0.1,
-        global_event_rate: float = 0.0,
-    ):
+    def __init__(self, agents: list[Agent], settings: WorldSection):
         self._agents = {a.id: a for a in agents}
         self.tick = 0
-        self.rng = random.Random(rng_seed)
-        self.noise = {
-            MemoryType.OBSERVE: 0.0,
-            MemoryType.HEAR: 0.0,
-            MemoryType.VERIFY: 0.0,
-        } | (noise or {})
-        self.truths = truths
+        self.rng = random.Random(settings.rng_seed)
+        self.noise = {MemoryType[k]: v for k, v in settings.noise.items()}
+        # Sorted: self.claims feeds rng.choice, so insertion order would
+        # otherwise leak into which claim each RNG draw picks.
+        self.truths = dict(sorted(settings.truths.items()))
         # private_event_rate: per-agent per-tick chance of a private observation
         #   event visible only to that agent.
         # global_event_rate: per-tick chance of one shared observation event
         #   visible to all agents.
-        self.private_event_rate = private_event_rate
-        self.global_event_rate = global_event_rate
+        self.private_event_rate = settings.observation.private_event_rate
+        self.global_event_rate = settings.observation.global_event_rate
         self._next_event_id = 0
         self.network = self._generate_dummy_network(
             # TODO: We can implement a more complex network generation mechanism here,
@@ -47,6 +43,26 @@ class World:
             # configurable graph model.
             agents
         )
+
+    @classmethod
+    def from_dict(cls, agents: list[Agent], raw: dict) -> World:
+        """Ad-hoc/direct construction entry point: ``raw`` is a possibly
+        partial world settings dict, e.g. ``{"truths": {0: True}, "rng_seed": 1}``.
+
+        ``truths``/``rng_seed`` have no schema default, so must be present
+        in ``raw``. ``noise`` is deep-merged onto its default first (same
+        dict-typed-field caveat as ``Agent.from_dict``); ``observation`` is
+        a nested section, which pydantic already fills in per-field.
+
+        :param agents: The world's agents
+        :type agents: list[Agent]
+        :param raw: A possibly partial world settings dict
+        :type raw: dict
+        :return: The constructed world
+        :rtype: World
+        """
+        merged = deep_merge({"noise": _DEFAULT_WORLD_NOISE}, raw)
+        return cls(agents=agents, settings=WorldSection.model_validate(merged))
 
     def _generate_dummy_network(self, agents: list[Agent]) -> dict[int, list[int]]:
         network = defaultdict(list)

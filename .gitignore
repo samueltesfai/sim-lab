@@ -60,3 +60,6 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Headless run artifacts (see README's simlab-run example)
+runs/

@@ -1,29 +1,28 @@
 import pytest
 import tempfile
 import os
-from omegaconf import OmegaConf, DictConfig
+import yaml
 
 from simlab.config import (
     load_config,
     validate_config,
-    convert_noise_strings,
     expand_agent_specs,
-    build_world,
+    world_from_config,
 )
-from simlab.sim import ActionType, MemoryType, Snapshot, World
+from simlab.config_schema import AgentSettings, SimConfig, WorldSection
+from simlab.kernel_types import ActionType, MemoryType, Snapshot
+from simlab.world import World
 
 
 def _build_valid_world(config_dict: dict) -> World:
-    """Build a World from a config dict after validating it."""
-    cfg = OmegaConf.create(config_dict)
-    validate_config(cfg)
-    return build_world(cfg)
+    """Build a World from a config dict, validating it in the process."""
+    return world_from_config(validate_config(config_dict))
 
 
 def create_test_config_file(config_dict: dict) -> str:
     """Create a temporary YAML config file for testing."""
     with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-        OmegaConf.save(config_dict, f.name)
+        yaml.dump(config_dict, f)
         return f.name
 
 
@@ -59,16 +58,15 @@ def test_load_config_success():
 
     try:
         cfg = load_config(config_path)
-        # load_config returns a DictConfig
-        assert isinstance(cfg, DictConfig)
+        # load_config returns a resolved, validated SimConfig
+        assert isinstance(cfg, SimConfig)
 
-        # Test accessing the config as OmegaConf/DictConfig
         assert cfg.agent.profiles[0].count == 5
         assert cfg.world.rng_seed == 42
         assert cfg.world.observation.private_event_rate == 0.1
         assert cfg.world.truths == {0: True, 1: False}
-        assert cfg.agent.defaults.action_preference.IDLE == 0.0
-        assert cfg.agent.defaults.action_preference.VERIFY == 0.9
+        assert cfg.agent.profiles[0].action_preference["IDLE"] == 0.0
+        assert cfg.agent.profiles[0].action_preference["VERIFY"] == 0.9
     finally:
         os.unlink(config_path)
 
@@ -79,10 +77,122 @@ def test_load_config_file_not_found():
         load_config("non_existent_config.yaml")
 
 
+def test_load_config_rejects_duplicate_yaml_keys():
+    """A repeated mapping key (e.g. learning.rate listed twice) must be
+    rejected rather than silently keeping only the last value -- plain
+    yaml.safe_load would otherwise load a config that doesn't match what's
+    visibly written in the file, with no warning."""
+    text = """
+world:
+  rng_seed: 0
+  rng_seed: 1
+  observation:
+    private_event_rate: 0.1
+    global_event_rate: 0.0
+  truths:
+    0: true
+agent:
+  defaults: {}
+  profiles:
+    - name: default
+      count: 1
+"""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+        f.write(text)
+        config_path = f.name
+
+    try:
+        with pytest.raises(yaml.constructor.ConstructorError, match="duplicate key"):
+            load_config(config_path)
+    finally:
+        os.unlink(config_path)
+
+
+def test_load_config_allows_yaml_merge_keys():
+    """A `<<: *anchor` merge key isn't itself a duplicate key, and an
+    explicit key overriding one pulled in via merge isn't either -- only a
+    literal repeated key should be rejected."""
+    text = """
+world:
+  rng_seed: 0
+  observation:
+    private_event_rate: 0.1
+    global_event_rate: 0.0
+  truths:
+    0: true
+agent:
+  defaults: {}
+  profiles:
+    - name: default
+      count: 1
+      observation: &obs
+        attention: 0.5
+        bias: 0.0
+    - name: other
+      count: 2
+      observation:
+        <<: *obs
+        attention: 0.9
+"""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+        f.write(text)
+        config_path = f.name
+
+    try:
+        cfg = load_config(config_path)
+        other = next(p for p in cfg.agent.profiles if p.name == "other")
+        assert other.observation.attention == 0.9  # explicit key wins over merge
+    finally:
+        os.unlink(config_path)
+
+
+def test_load_config_rejects_repeated_merge_key():
+    """Two literal `<<` keys in the same mapping isn't a documented YAML
+    construct -- PyYAML accepts it anyway and lets the later merge key
+    silently win on any field the two sources disagree on. That's exactly
+    the kind of silent, order-dependent surprise the duplicate-key guard
+    exists to catch, so it should be rejected like any other repeated key
+    (a genuine multi-source merge should use `<<: [*a, *b]` instead)."""
+    text = """
+world:
+  rng_seed: 0
+  observation:
+    private_event_rate: 0.1
+    global_event_rate: 0.0
+  truths:
+    0: true
+agent:
+  defaults: {}
+  profiles:
+    - name: default
+      count: 1
+      observation: &first
+        attention: 0.5
+        bias: 0.0
+    - name: other
+      count: 1
+      observation:
+        <<: *first
+        <<: *first
+"""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+        f.write(text)
+        config_path = f.name
+
+    try:
+        with pytest.raises(
+            yaml.constructor.ConstructorError, match="duplicate merge key"
+        ):
+            load_config(config_path)
+    finally:
+        os.unlink(config_path)
+
+
 def test_validate_config_success():
     """Test config validation with valid config."""
     config_dict = {
         "world": {
+            "rng_seed": 0,
             "observation": {"private_event_rate": 0.2, "global_event_rate": 0.0},
             "truths": {0: True, 1: False},
             "noise": {"OBSERVE": 0.0, "HEAR": 0.1, "VERIFY": 0.05},
@@ -106,16 +216,15 @@ def test_validate_config_success():
         },
     }
 
-    cfg = OmegaConf.create(config_dict)
-
     # Should not raise any exceptions
-    validate_config(cfg)
+    validate_config(config_dict)
 
 
 def test_validate_config_invalid_profile_count():
     """Test config validation with a non-positive profile count."""
     config_dict = {
         "world": {
+            "rng_seed": 0,
             "observation": {"private_event_rate": 0.2, "global_event_rate": 0.0},
             "truths": {0: True},
             "noise": {"OBSERVE": 0.0, "HEAR": 0.1, "VERIFY": 0.05},
@@ -139,18 +248,15 @@ def test_validate_config_invalid_profile_count():
         },
     }
 
-    cfg = OmegaConf.create(config_dict)
-
-    with pytest.raises(
-        ValueError, match="agent profile default count must be a positive integer"
-    ):
-        validate_config(cfg)
+    with pytest.raises(ValueError, match=r"agent\.profiles\.0\.count"):
+        validate_config(config_dict)
 
 
 def test_validate_config_non_integral_profile_count():
     """A non-integral count is rejected rather than silently floored."""
     config_dict = {
         "world": {
+            "rng_seed": 0,
             "observation": {"private_event_rate": 0.1, "global_event_rate": 0.0},
             "truths": {0: True},
             "noise": {"OBSERVE": 0.0, "HEAR": 0.1, "VERIFY": 0.05},
@@ -161,18 +267,15 @@ def test_validate_config_non_integral_profile_count():
         },
     }
 
-    cfg = OmegaConf.create(config_dict)
-
-    with pytest.raises(
-        ValueError, match="agent profile default count must be a positive integer"
-    ):
-        validate_config(cfg)
+    with pytest.raises(ValueError, match=r"agent\.profiles\.0\.count"):
+        validate_config(config_dict)
 
 
 def test_validate_config_invalid_observation_rate():
     """Test config validation with invalid observation event rate."""
     config_dict = {
         "world": {
+            "rng_seed": 0,
             "observation": {
                 "private_event_rate": 1.5,
                 "global_event_rate": 0.0,
@@ -199,19 +302,15 @@ def test_validate_config_invalid_observation_rate():
         },
     }
 
-    cfg = OmegaConf.create(config_dict)
-
-    with pytest.raises(
-        ValueError,
-        match="world.observation.private_event_rate must be in \\[0, 1\\]",
-    ):
-        validate_config(cfg)
+    with pytest.raises(ValueError, match=r"world\.observation\.private_event_rate"):
+        validate_config(config_dict)
 
 
 def test_validate_config_invalid_global_event_rate():
     """Test config validation with out-of-range global event rate."""
     config_dict = {
         "world": {
+            "rng_seed": 0,
             "observation": {
                 "private_event_rate": 0.1,
                 "global_event_rate": 1.5,  # Invalid: must be in [0, 1]
@@ -225,19 +324,15 @@ def test_validate_config_invalid_global_event_rate():
         },
     }
 
-    cfg = OmegaConf.create(config_dict)
-
-    with pytest.raises(
-        ValueError,
-        match="world.observation.global_event_rate must be in \\[0, 1\\]",
-    ):
-        validate_config(cfg)
+    with pytest.raises(ValueError, match=r"world\.observation\.global_event_rate"):
+        validate_config(config_dict)
 
 
 def test_validate_config_invalid_observation_attention():
     """Test config validation with out-of-range observation attention."""
     config_dict = {
         "world": {
+            "rng_seed": 0,
             "observation": {"private_event_rate": 0.1, "global_event_rate": 0.0},
             "truths": {0: True},
             "noise": {"OBSERVE": 0.0, "HEAR": 0.1, "VERIFY": 0.05},
@@ -250,19 +345,15 @@ def test_validate_config_invalid_observation_attention():
         },
     }
 
-    cfg = OmegaConf.create(config_dict)
-
-    with pytest.raises(
-        ValueError,
-        match="agent.defaults.observation.attention must be in \\[0, 1\\]",
-    ):
-        validate_config(cfg)
+    with pytest.raises(ValueError, match=r"agent\.profiles\.0\.observation\.attention"):
+        validate_config(config_dict)
 
 
 def test_validate_config_invalid_observation_bias():
     """Test config validation with out-of-range observation bias on a profile."""
     config_dict = {
         "world": {
+            "rng_seed": 0,
             "observation": {"private_event_rate": 0.1, "global_event_rate": 0.0},
             "truths": {0: True},
             "noise": {"OBSERVE": 0.0, "HEAR": 0.1, "VERIFY": 0.05},
@@ -279,19 +370,15 @@ def test_validate_config_invalid_observation_bias():
         },
     }
 
-    cfg = OmegaConf.create(config_dict)
-
-    with pytest.raises(
-        ValueError,
-        match="agent.profiles.extreme.observation.bias must be in \\[-1, 1\\]",
-    ):
-        validate_config(cfg)
+    with pytest.raises(ValueError, match=r"agent\.profiles\.0\.observation\.bias"):
+        validate_config(config_dict)
 
 
 def test_validate_config_negative_noise():
     """Test config validation with negative noise values."""
     config_dict = {
         "world": {
+            "rng_seed": 0,
             "observation": {"private_event_rate": 0.2, "global_event_rate": 0.0},
             "truths": {0: True},
             "noise": {
@@ -319,16 +406,15 @@ def test_validate_config_negative_noise():
         },
     }
 
-    cfg = OmegaConf.create(config_dict)
-
-    with pytest.raises(ValueError, match="world.noise.OBSERVE must be non-negative"):
-        validate_config(cfg)
+    with pytest.raises(ValueError, match="world.noise values must be non-negative"):
+        validate_config(config_dict)
 
 
 def test_validate_config_invalid_action_preference():
     """Test config validation with invalid action preference."""
     config_dict = {
         "world": {
+            "rng_seed": 0,
             "observation": {"private_event_rate": 0.2, "global_event_rate": 0.0},
             "truths": {0: True},
             "noise": {"OBSERVE": 0.0, "HEAR": 0.1, "VERIFY": 0.05},
@@ -352,19 +438,17 @@ def test_validate_config_invalid_action_preference():
         },
     }
 
-    cfg = OmegaConf.create(config_dict)
-
     with pytest.raises(
-        ValueError,
-        match="agent.defaults.action_preference.VERIFY must be in \\[0, 1\\]",
+        ValueError, match=r"action_preference values must be in \[0, 1\]"
     ):
-        validate_config(cfg)
+        validate_config(config_dict)
 
 
 def test_validate_config_invalid_action_name():
     """Test config validation with invalid action name."""
     config_dict = {
         "world": {
+            "rng_seed": 0,
             "observation": {"private_event_rate": 0.2, "global_event_rate": 0.0},
             "truths": {0: True},
             "noise": {"OBSERVE": 0.0, "HEAR": 0.1, "VERIFY": 0.05},
@@ -388,16 +472,17 @@ def test_validate_config_invalid_action_name():
         },
     }
 
-    cfg = OmegaConf.create(config_dict)
-
-    with pytest.raises(ValueError, match="Invalid action: INVALID_ACTION"):
-        validate_config(cfg)
+    with pytest.raises(
+        ValueError, match=r"agent\.profiles\.0\.action_preference\.INVALID_ACTION"
+    ):
+        validate_config(config_dict)
 
 
 def test_validate_config_negative_action_cost():
     """Test config validation with negative action cost."""
     config_dict = {
         "world": {
+            "rng_seed": 0,
             "observation": {"private_event_rate": 0.2, "global_event_rate": 0.0},
             "truths": {0: True},
             "noise": {"OBSERVE": 0.0, "HEAR": 0.1, "VERIFY": 0.05},
@@ -421,18 +506,15 @@ def test_validate_config_negative_action_cost():
         },
     }
 
-    cfg = OmegaConf.create(config_dict)
-
-    with pytest.raises(
-        ValueError, match="agent.defaults.action_cost.VERIFY must be non-negative"
-    ):
-        validate_config(cfg)
+    with pytest.raises(ValueError, match="action_cost values must be non-negative"):
+        validate_config(config_dict)
 
 
 def test_validate_config_invalid_truths():
     """Test config validation with invalid truth values."""
     config_dict = {
         "world": {
+            "rng_seed": 0,
             "observation": {"private_event_rate": 0.2, "global_event_rate": 0.0},
             "truths": {0: "not_boolean", 1: False},  # Invalid: not boolean
             "noise": {"OBSERVE": 0.0, "HEAR": 0.1, "VERIFY": 0.05},
@@ -456,29 +538,123 @@ def test_validate_config_invalid_truths():
         },
     }
 
-    cfg = OmegaConf.create(config_dict)
+    with pytest.raises(ValueError, match=r"world\.truths\.0"):
+        validate_config(config_dict)
 
-    with pytest.raises(ValueError, match="world.truths.0 must be boolean"):
+
+def test_validate_config_rejects_unknown_learning_field():
+    """A typo like learning.ratee (instead of learning.rate) must be
+    rejected -- otherwise it silently has zero effect on the simulation
+    while still polluting resolved_config/the scenario fingerprint."""
+    config_dict = {
+        "world": {
+            "rng_seed": 0,
+            "observation": {"private_event_rate": 0.1, "global_event_rate": 0.0},
+            "truths": {0: True},
+            "noise": {"OBSERVE": 0.0, "HEAR": 0.0, "VERIFY": 0.0},
+        },
+        "agent": {
+            "defaults": {"learning": {"ratee": 0.5}},
+            "profiles": [{"name": "default", "count": 1}],
+        },
+    }
+
+    with pytest.raises(ValueError, match=r"agent\.profiles\.0\.learning\.ratee"):
+        validate_config(config_dict)
+
+
+def test_validate_config_rejects_unknown_top_level_setting():
+    """An unrecognized top-level settings key (e.g. a misspelled section
+    name) is rejected rather than silently ignored."""
+    config_dict = {
+        "world": {
+            "rng_seed": 0,
+            "observation": {"private_event_rate": 0.1, "global_event_rate": 0.0},
+            "truths": {0: True},
+            "noise": {"OBSERVE": 0.0, "HEAR": 0.0, "VERIFY": 0.0},
+        },
+        "agent": {
+            "defaults": {"observaton": {"attention": 0.5}},
+            "profiles": [{"name": "default", "count": 1}],
+        },
+    }
+
+    with pytest.raises(ValueError, match=r"agent\.profiles\.0\.observaton"):
+        validate_config(config_dict)
+
+
+def test_validate_config_rejects_unknown_world_observation_key():
+    """A misspelled world.observation key (e.g. private_event_ratte) must be
+    rejected rather than silently dropped."""
+    config_dict = {
+        "world": {
+            "rng_seed": 0,
+            "observation": {"private_event_ratte": 0.9, "global_event_rate": 0.0},
+            "truths": {0: True},
+            "noise": {"OBSERVE": 0.0, "HEAR": 0.0, "VERIFY": 0.0},
+        },
+        "agent": {
+            "defaults": {},
+            "profiles": [{"name": "default", "count": 1}],
+        },
+    }
+
+    with pytest.raises(ValueError, match=r"world\.observation\.private_event_ratte"):
+        validate_config(config_dict)
+
+
+def test_validate_config_rejects_unknown_top_level_world_key():
+    """A stray top-level world key must be rejected, not silently dropped
+    by _materialize_world_settings only ever reading its four known keys."""
+    cfg = _config([{"name": "default", "count": 1}])
+    cfg["world"]["bogus_key"] = 123
+
+    with pytest.raises(ValueError, match=r"world\.bogus_key"):
         validate_config(cfg)
 
 
-def test_convert_noise_strings():
-    """Test conversion of string noise keys to MemoryType enums."""
-    config_dict = {"world": {"noise": {"OBSERVE": 0.0, "HEAR": 0.1, "VERIFY": 0.05}}}
+def test_validate_config_rejects_unknown_top_level_agent_key():
+    """A stray top-level agent key must be rejected, not silently dropped
+    by _materialize_config only ever reading agent.profiles."""
+    cfg = _config([{"name": "default", "count": 1}])
+    cfg["agent"]["bogus_key"] = 123
 
-    cfg = OmegaConf.create(config_dict)
+    with pytest.raises(ValueError, match=r"agent\.bogus_key"):
+        validate_config(cfg)
 
-    converted_cfg = convert_noise_strings(cfg)
 
-    # Noise keys should be converted to MemoryType enums
-    assert MemoryType.OBSERVE in converted_cfg.world.noise
-    assert MemoryType.HEAR in converted_cfg.world.noise
-    assert MemoryType.VERIFY in converted_cfg.world.noise
+def test_validate_config_rejects_unknown_top_level_config_key():
+    """A stray top-level config key (outside world/agent) must be rejected,
+    not silently dropped by _materialize_config only ever reading world/agent."""
+    cfg = _config([{"name": "default", "count": 1}])
+    cfg["bogus_key"] = 123
 
-    # Check values are preserved
-    assert converted_cfg.world.noise[MemoryType.OBSERVE] == 0.0
-    assert converted_cfg.world.noise[MemoryType.HEAR] == 0.1
-    assert converted_cfg.world.noise[MemoryType.VERIFY] == 0.05
+    with pytest.raises(ValueError, match=r"bogus_key"):
+        validate_config(cfg)
+
+
+def test_validate_config_rejects_unknown_setting_on_profile():
+    """Unknown settings keys are also rejected on profile overrides, not
+    just agent.defaults."""
+    config_dict = {
+        "world": {
+            "rng_seed": 0,
+            "observation": {"private_event_rate": 0.1, "global_event_rate": 0.0},
+            "truths": {0: True},
+            "noise": {"OBSERVE": 0.0, "HEAR": 0.0, "VERIFY": 0.0},
+        },
+        "agent": {
+            "defaults": {},
+            "profiles": [
+                {"name": "default", "count": 1, "social": {"confidence_boundd": 0.5}}
+            ],
+        },
+    }
+
+    with pytest.raises(
+        ValueError, match=r"agent\.profiles\.0\.social\.confidence_boundd"
+    ):
+        validate_config(config_dict)
 
 
 def test_build_world():
@@ -665,7 +841,7 @@ def test_load_config_and_build_world_integration():
     try:
         # Load and build
         cfg = load_config(config_path)
-        world = build_world(cfg)
+        world = world_from_config(cfg)
 
         # Verify it works
         assert len(world.agents) == 2
@@ -708,11 +884,168 @@ def _config(profiles: list[dict]) -> dict:
     }
 
 
+def test_validate_config_world_noise_entirely_omitted():
+    """world.noise itself is optional -- omitting the whole block (not just
+    individual keys within it) must still default every channel to 0.0,
+    not crash with a raw KeyError. _check_structure already tolerated a
+    missing noise key, but _materialize_world_settings still indexed it
+    with cfg["world"]["noise"] instead of .get(...)."""
+    cfg = _config([{"name": "default", "count": 1}])
+    del cfg["world"]["noise"]
+
+    resolved = validate_config(cfg)
+
+    assert resolved.world.noise == {"OBSERVE": 0.0, "HEAR": 0.0, "VERIFY": 0.0}
+
+
+def test_validate_config_world_observation_entirely_omitted():
+    """world.observation itself is optional -- omitting the whole block
+    must default private_event_rate/global_event_rate to 0.1/0.0 (the same
+    values World.__init__ used to hardcode), not crash with a KeyError."""
+    cfg = _config([{"name": "default", "count": 1}])
+    del cfg["world"]["observation"]
+
+    resolved = validate_config(cfg)
+
+    assert resolved.world.observation.private_event_rate == 0.1
+    assert resolved.world.observation.global_event_rate == 0.0
+
+
+def test_validate_config_rejects_non_integer_rng_seed():
+    """A non-integral seed (e.g. 1.9) would silently seed the world's RNG
+    with a different stream than the int world_seed later recorded in run
+    metadata -- reject it instead of letting it through unnoticed."""
+    cfg = _config([{"name": "default", "count": 1}])
+    cfg["world"]["rng_seed"] = 1.9
+
+    with pytest.raises(ValueError, match=r"world\.rng_seed"):
+        validate_config(cfg)
+
+
+def test_validate_config_rejects_bool_rng_seed():
+    """bool is an int subclass; True/False are not meaningful seeds."""
+    cfg = _config([{"name": "default", "count": 1}])
+    cfg["world"]["rng_seed"] = True
+
+    with pytest.raises(ValueError, match=r"world\.rng_seed"):
+        validate_config(cfg)
+
+
+def test_validate_config_rejects_missing_rng_seed():
+    cfg = _config([{"name": "default", "count": 1}])
+    del cfg["world"]["rng_seed"]
+
+    with pytest.raises(ValueError, match=r"world\.rng_seed"):
+        validate_config(cfg)
+
+
+def test_validate_config_rejects_duplicate_profile_names():
+    """Two profiles sharing a name would silently overwrite each other's
+    entry in profile_counts/scenario features (e.g. profile_count.<name>),
+    making the reported population inconsistent with num_agents."""
+    cfg = _config(
+        [
+            {"name": "dup", "count": 2},
+            {"name": "dup", "count": 3},
+        ]
+    )
+
+    with pytest.raises(ValueError, match="duplicate agent profile name: 'dup'"):
+        validate_config(cfg)
+
+
+def test_validate_config_rejects_mixed_type_truth_keys():
+    """A claim id given as a string (e.g. from a quoted YAML key) alongside
+    genuine int claim ids would otherwise pass validation and crash
+    execute_run later inside json.dumps(sort_keys=True), which can't order
+    mixed int/str dict keys."""
+    cfg = _config([{"name": "default", "count": 1}])
+    cfg["world"]["truths"] = {0: True, "1": False}
+
+    with pytest.raises(ValueError, match=r"world\.truths"):
+        validate_config(cfg)
+
+
+def test_validate_config_rejects_empty_truths():
+    """A world with zero claims can't run -- rng.choice(self.claims) in
+    World._generate_observation_events raises on an empty list."""
+    cfg = _config([{"name": "default", "count": 1}])
+    cfg["world"]["truths"] = {}
+
+    with pytest.raises(ValueError, match=r"world\.truths"):
+        validate_config(cfg)
+
+
+def test_validate_config_rejects_non_string_profile_name():
+    """A non-string profile name would let e.g. profile 1 (int) and profile
+    "1" (str) both pass duplicate-name detection (1 != "1" in Python) while
+    colliding once flattened into scenario feature keys like
+    profile_count.1, and can independently crash
+    json.dumps(profile_counts, sort_keys=True) on mixed key types."""
+    cfg = _config([{"name": 1, "count": 1}])
+
+    with pytest.raises(ValueError, match=r"agent\.profiles\.0\.name"):
+        validate_config(cfg)
+
+
+def test_validate_config_rejects_bool_for_world_rate():
+    """bool is an int subclass, so global_event_rate: true would otherwise
+    pass the 0 <= x <= 1 range check -- but fingerprint normalization
+    deliberately keeps bools distinct from numbers (needed so world.truths
+    values stay true/false rather than becoming 1/0), so a boolean rate and
+    its numeric equivalent (1.0) would fingerprint differently despite
+    building an identical simulation."""
+    cfg = _config([{"name": "default", "count": 1}])
+    cfg["world"]["observation"]["global_event_rate"] = True
+
+    with pytest.raises(ValueError, match=r"world\.observation\.global_event_rate"):
+        validate_config(cfg)
+
+
+def test_validate_config_rejects_bool_for_agent_attention():
+    """Same bool-as-int gap, on an agent settings field."""
+    cfg = _config([{"name": "default", "count": 1}])
+    cfg["agent"]["defaults"]["observation"] = {"attention": True}
+
+    with pytest.raises(ValueError, match=r"agent\.profiles\.0\.observation\.attention"):
+        validate_config(cfg)
+
+
+def test_validate_config_rejects_nan_on_unconstrained_field():
+    """trust.default has no Field(ge=, le=) range -- without
+    allow_inf_nan=False on the shared model config, a YAML `.nan` would pass
+    through it silently."""
+    cfg = _config([{"name": "default", "count": 1}])
+    cfg["agent"]["defaults"]["trust"] = {"default": float("nan")}
+
+    with pytest.raises(ValueError, match=r"agent\.profiles\.0\.trust\.default"):
+        validate_config(cfg)
+
+
+def test_validate_config_rejects_nan_on_custom_validated_field():
+    """action_cost's range check is `value < 0`, and `nan < 0` is always
+    False -- a NaN cost would silently pass that check without
+    allow_inf_nan=False guarding it at the model level instead."""
+    cfg = _config([{"name": "default", "count": 1}])
+    cfg["agent"]["defaults"]["action_cost"] = {"VERIFY": float("nan")}
+
+    with pytest.raises(ValueError, match=r"agent\.profiles\.0\.action_cost\.VERIFY"):
+        validate_config(cfg)
+
+
+def test_validate_config_rejects_infinity():
+    """Same guard, for +/-Infinity rather than NaN."""
+    cfg = _config([{"name": "default", "count": 1}])
+    cfg["world"]["observation"]["private_event_rate"] = float("inf")
+
+    with pytest.raises(ValueError, match=r"world\.observation\.private_event_rate"):
+        validate_config(cfg)
+
+
 def test_single_default_profile_builds():
     """A single 'default' profile builds the requested number of agents."""
-    cfg = OmegaConf.create(_config([{"name": "default", "count": 4}]))
-    validate_config(cfg)
-    world = build_world(cfg)
+    cfg = validate_config(_config([{"name": "default", "count": 4}]))
+    world = world_from_config(cfg)
 
     assert len(world.agents) == 4
     assert all(agent.profile_name == "default" for agent in world.agents)
@@ -774,11 +1107,10 @@ def test_profiles_expand_counts_and_params():
 
 def test_profile_counts_determine_total_agents():
     """Total agents is the sum of profile counts; no separate world total."""
-    cfg = OmegaConf.create(
+    cfg = validate_config(
         _config([{"name": "a", "count": 20}, {"name": "b", "count": 29}])
     )
-    validate_config(cfg)
-    world = build_world(cfg)
+    world = world_from_config(cfg)
     assert len(world.agents) == 49
     assert world.profile_counts == {"a": 20, "b": 29}
 
@@ -786,9 +1118,8 @@ def test_profile_counts_determine_total_agents():
 def test_empty_profiles_raise():
     """An empty profiles list is rejected."""
     config_dict = _config([])
-    cfg = OmegaConf.create(config_dict)
-    with pytest.raises(ValueError, match="at least one profile"):
-        validate_config(cfg)
+    with pytest.raises(ValueError, match=r"agent\.profiles"):
+        validate_config(config_dict)
 
 
 def test_missing_defaults_raises():
@@ -796,9 +1127,8 @@ def test_missing_defaults_raises():
     config_dict = _config([{"name": "default", "count": 3}])
     del config_dict["agent"]["defaults"]
 
-    cfg = OmegaConf.create(config_dict)
-    with pytest.raises(ValueError, match="agent.defaults is required"):
-        validate_config(cfg)
+    with pytest.raises(ValueError, match=r"agent\.defaults"):
+        validate_config(config_dict)
 
 
 def test_missing_profiles_raises():
@@ -806,29 +1136,47 @@ def test_missing_profiles_raises():
     config_dict = _config([{"name": "default", "count": 3}])
     del config_dict["agent"]["profiles"]
 
-    cfg = OmegaConf.create(config_dict)
-    with pytest.raises(ValueError, match="agent.profiles is required"):
-        validate_config(cfg)
+    with pytest.raises(ValueError, match=r"agent\.profiles"):
+        validate_config(config_dict)
 
 
 def test_profile_missing_count_raises():
     """Each profile must define a count."""
     config_dict = _config([{"name": "default"}])
-    cfg = OmegaConf.create(config_dict)
     with pytest.raises(
-        ValueError, match="agent profile default count must be a positive integer"
+        ValueError, match="each agent profile must define name and count"
     ):
+        validate_config(config_dict)
+
+
+def test_defaults_with_count_raises():
+    """agent.defaults.count must be rejected -- otherwise it silently
+    overwrites every profile's own explicit count on merge."""
+    cfg = _config([{"name": "default", "count": 1}])
+    cfg["agent"]["defaults"]["count"] = 100
+
+    with pytest.raises(ValueError, match=r"agent\.defaults.*not contain"):
+        validate_config(cfg)
+
+
+def test_defaults_with_name_raises():
+    """Same guard, for agent.defaults.name."""
+    cfg = _config([{"name": "default", "count": 1}])
+    cfg["agent"]["defaults"]["name"] = "oops"
+
+    with pytest.raises(ValueError, match=r"agent\.defaults.*not contain"):
         validate_config(cfg)
 
 
 def test_expand_agent_specs_single_profile():
-    """expand_agent_specs returns one spec per agent for a single default profile."""
-    cfg = OmegaConf.create(_config([{"name": "default", "count": 3}]))
+    """expand_agent_specs returns one resolved AgentProfile per agent for a
+    single default profile."""
+    cfg = validate_config(_config([{"name": "default", "count": 3}]))
     specs = expand_agent_specs(cfg)
 
     assert len(specs) == 3
-    assert all(spec["profile_name"] == "default" for spec in specs)
-    assert all(ActionType.VERIFY in spec["action_preference"] for spec in specs)
+    assert all(spec.name == "default" for spec in specs)
+    assert all("VERIFY" in spec.action_preference for spec in specs)
 
 
 def test_validate_config_rejects_non_integral_count():
@@ -837,10 +1185,8 @@ def test_validate_config_rejects_non_integral_count():
     ``load_config`` performs the validation at the input boundary, so the
     build path cannot silently change the requested population size.
     """
-    cfg = OmegaConf.create(_config([{"name": "default", "count": 2.9}]))
-    with pytest.raises(
-        ValueError, match="agent profile default count must be a positive integer"
-    ):
+    cfg = _config([{"name": "default", "count": 2.9}])
+    with pytest.raises(ValueError, match=r"agent\.profiles\.0\.count"):
         validate_config(cfg)
 
 
@@ -859,17 +1205,16 @@ def _social_config(social: dict) -> dict:
 def test_validate_social_confidence_bound_valid():
     """Valid confidence_bound values in [0, 1] pass validation."""
     for val in [0.0, 0.5, 1.0]:
-        cfg = OmegaConf.create(_social_config({"confidence_bound": val}))
+        cfg = _social_config({"confidence_bound": val})
         validate_config(cfg)  # should not raise
 
 
 def test_validate_social_confidence_bound_invalid():
     """confidence_bound outside [0, 1] is rejected."""
     for val in [-0.1, 1.1]:
-        cfg = OmegaConf.create(_social_config({"confidence_bound": val}))
+        cfg = _social_config({"confidence_bound": val})
         with pytest.raises(
-            ValueError,
-            match="agent.defaults.social.confidence_bound must be in \\[0, 1\\]",
+            ValueError, match=r"agent\.profiles\.0\.social\.confidence_bound"
         ):
             validate_config(cfg)
 
@@ -877,17 +1222,16 @@ def test_validate_social_confidence_bound_invalid():
 def test_validate_social_trust_update_rate_valid():
     """Valid trust_update_rate values in [0, 1] pass validation."""
     for val in [0.0, 0.3, 1.0]:
-        cfg = OmegaConf.create(_social_config({"trust_update_rate": val}))
+        cfg = _social_config({"trust_update_rate": val})
         validate_config(cfg)
 
 
 def test_validate_social_trust_update_rate_invalid():
     """trust_update_rate outside [0, 1] is rejected."""
     for val in [-0.01, 1.5]:
-        cfg = OmegaConf.create(_social_config({"trust_update_rate": val}))
+        cfg = _social_config({"trust_update_rate": val})
         with pytest.raises(
-            ValueError,
-            match="agent.defaults.social.trust_update_rate must be in \\[0, 1\\]",
+            ValueError, match=r"agent\.profiles\.0\.social\.trust_update_rate"
         ):
             validate_config(cfg)
 
@@ -895,16 +1239,15 @@ def test_validate_social_trust_update_rate_invalid():
 def test_validate_social_update_trust_on_rejection_valid():
     """Boolean update_trust_on_rejection passes validation."""
     for val in [True, False]:
-        cfg = OmegaConf.create(_social_config({"update_trust_on_rejection": val}))
+        cfg = _social_config({"update_trust_on_rejection": val})
         validate_config(cfg)
 
 
 def test_validate_social_update_trust_on_rejection_invalid():
     """Non-boolean update_trust_on_rejection is rejected."""
-    cfg = OmegaConf.create(_social_config({"update_trust_on_rejection": "yes"}))
+    cfg = _social_config({"update_trust_on_rejection": "yes"})
     with pytest.raises(
-        ValueError,
-        match="agent.defaults.social.update_trust_on_rejection must be boolean",
+        ValueError, match=r"agent\.profiles\.0\.social\.update_trust_on_rejection"
     ):
         validate_config(cfg)
 
@@ -986,11 +1329,66 @@ def test_social_params_profile_overrides_defaults():
 
 def test_social_params_absent_uses_agent_defaults():
     """When social section is omitted, Agent defaults (1.0 / 0.0 / True) apply."""
-    cfg = OmegaConf.create(_config([{"name": "default", "count": 2}]))
-    validate_config(cfg)
-    world = build_world(cfg)
+    cfg = validate_config(_config([{"name": "default", "count": 2}]))
+    world = world_from_config(cfg)
 
     for agent in world.agents:
         assert agent.social_confidence_bound == pytest.approx(1.0)
         assert agent.social_trust_update_rate == pytest.approx(0.0)
         assert agent.social_update_trust_on_rejection is True
+
+
+# ---------------------------------------------------------------------------
+# Direct pydantic model construction (bypassing the config.py pipeline)
+#
+# AgentSettings/WorldSection are constructible directly now that Agent/World
+# accept them as their settings argument -- config.py's deep_merge always
+# hands them a complete dict, but a direct caller doesn't have to.
+# ---------------------------------------------------------------------------
+
+
+def test_agent_settings_fills_partial_action_preference():
+    """AgentSettings(action_preference={"IDLE": 0.5}) must fill the other
+    actions from defaults, not leave them missing -- Agent would otherwise
+    KeyError in score_action() for any omitted action."""
+    settings = AgentSettings(action_preference={"IDLE": 0.5})
+
+    assert settings.action_preference == {
+        "IDLE": 0.5,
+        "VERIFY": 0.9,
+        "COMMUNICATE": 0.7,
+        "BROADCAST": 0.5,
+    }
+
+
+def test_agent_settings_fills_partial_action_cost():
+    """Same guard, for action_cost."""
+    settings = AgentSettings(action_cost={"VERIFY": 0.5})
+
+    assert settings.action_cost == {
+        "IDLE": 0.0,
+        "VERIFY": 0.5,
+        "COMMUNICATE": 0.15,
+        "BROADCAST": 0.30,
+    }
+
+
+def test_world_section_fills_partial_noise():
+    """WorldSection(noise={"OBSERVE": 0.1}) must fill the other channels
+    from defaults -- World would otherwise KeyError on the first missing
+    channel it needs."""
+    settings = WorldSection.model_validate(
+        {"rng_seed": 0, "truths": {0: True}, "noise": {"OBSERVE": 0.1}}
+    )
+
+    assert settings.noise == {"OBSERVE": 0.1, "HEAR": 0.0, "VERIFY": 0.0}
+
+
+def test_world_section_fills_empty_noise():
+    """An explicitly empty noise dict (distinct from omitting the key
+    entirely) must still be filled, not left empty."""
+    settings = WorldSection.model_validate(
+        {"rng_seed": 0, "truths": {0: True}, "noise": {}}
+    )
+
+    assert settings.noise == {"OBSERVE": 0.0, "HEAR": 0.0, "VERIFY": 0.0}

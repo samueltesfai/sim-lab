@@ -1,82 +1,36 @@
-# Simulation Lab: Social Network Behavior Experiments
+# Simulation Lab: Belief Dynamics on Social Networks
 
 <p align="center">
   <img src="docs/assets/demo.gif" alt="Simulation demo">
 </p>
 
-This repository is a simulation lab for studying belief dynamics and information diffusion in directed social networks. It provides a simulation kernel, telemetry system, and live visualization for observing how agents interact, exchange information, and update beliefs over time.
+An agent-based simulation of how beliefs spread and update on a directed social network. Agents form beliefs from three distinct information channels — passive observation, active verification, and secondhand hearing from neighbors — and weigh new evidence against how much they trust its source. Each run is config-driven, deterministic, and fingerprinted, so the same scenario always reproduces the same result and different scenarios are never mistaken for the same one.
 
----
-
-## Features
-
-### 1. **Simulation Kernel**
-The simulation kernel models a directed social network where agents:
-
-- **Receive passive observations** from the world with noisy evidence
-- **Communicate** beliefs to specific neighbors
-- **Broadcast** beliefs to all outgoing neighbors
-- **Verify** claims with direct evidence
-- **Update** beliefs from accumulated memories using trust-weighted learning
-
-The kernel supports:
-
-- Configurable world and agent parameters through YAML config files
-- Dynamic belief updates based on memory and evidence
-- Per-step snapshots capturing full agent belief state, memory sizes, and event data
-
-### 2. **Telemetry System**
-The telemetry system tracks simulation metrics across all agents and claims:
-
-- Global belief statistics (mean, std, min, max)
-- Truth-alignment metrics against known world claims
-- Belief change deltas between steps
-- Event counts (observations, verifications, communications, broadcasts)
-- Step runtime measurement
-- Initial baseline recording before the first simulation step
-- Export to CSV and JSONL formats
-
-### 3. **Visualization System**
-The visualization system renders the social network in real time, allowing you to observe:
-
-- Agent positions and belief states
-- Directed communication and broadcast edges
-- Overlays for observed, verified, and receiving agents
-- Interactive tooltips for detailed agent information
-
-### 4. **Configuration**
-Simulation scenarios are defined in `configs/` and loaded through `config.py`.
-
-See the [model documentation](docs/model.md) for the simulation design, and the
-[configuration reference](docs/config.md) for the YAML schema and CLI options.
+See [`docs/model.md`](docs/model.md) for the full belief-update model and [`docs/config.md`](docs/config.md) for the YAML config reference.
 
 ---
 
 ## Getting Started
 
-Install dependencies and run:
-
 ```bash
 pip install -e .
-python -m simlab
 ```
 
-Run tests:
+This installs `simlab-viz` and `simlab-run` (equivalently `python -m simlab.viz_cli` / `python -m simlab.runner`). Pass `-h` to either for the full list of flags.
+
+### Visualization
+
+Live matplotlib view of the network as it runs:
 
 ```bash
-pytest
+simlab-viz --config configs/default.yaml --steps 500
 ```
 
-Pass `-h` for the full list of CLI flags.
+### Headless runs
 
----
+No visualization; writes a self-contained, reproducible run artifact (`manifest.json`, `summary.json`, `trajectory.csv`) to `<output-dir>/<run-id>/`:
 
-## Next Steps
-
-Planned directions for the project include:
-
-- Adding more scenario presets and config-driven experiments
-- Improving telemetry metrics for action selection and belief alignment
-- Writing notebook-based case studies for specific simulation runs
-- Extending the decision model toward explicit utility or expected utility
-- Investigating richer trust dynamics and misinformation behaviors
+```bash
+simlab-run --config configs/default.yaml --steps 500
+```
+</content>

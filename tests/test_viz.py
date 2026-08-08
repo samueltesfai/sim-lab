@@ -3,7 +3,9 @@ import numpy as np
 import networkx as nx
 from unittest.mock import Mock, patch
 
-from simlab.sim import World, Agent, Snapshot
+from simlab.world import World
+from simlab.agent import Agent
+from simlab.kernel_types import Snapshot
 from simlab.telemetry import Telemetry
 from simlab.viz.scene import Scene, build_scene
 from simlab.viz.view_model import compute_viewmodel
@@ -15,7 +17,7 @@ def _build_test_world(n_agents: int = 3, n_claims: int = 2) -> World:
     """Helper to build a test world with specified number of agents and claims."""
     agents = [Agent(i, rng_seed=i) for i in range(n_agents)]
     truths = {i: (i % 2 == 0) for i in range(n_claims)}  # Alternate true/false
-    return World(agents=agents, truths=truths, rng_seed=42)
+    return World.from_dict(agents, {"truths": truths, "rng_seed": 42})
 
 
 def _build_test_snapshot(world: World, tick: int = 0) -> Snapshot:

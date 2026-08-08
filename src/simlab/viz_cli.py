@@ -1,7 +1,7 @@
 import argparse
 
 from simlab.viz import run_viz
-from simlab.config import load_config, build_world
+from simlab.config import load_config, world_from_config
 from simlab.telemetry import Telemetry
 
 
@@ -68,7 +68,7 @@ def main() -> None:
     args = parser.parse_args()
 
     cfg = load_config(args.config)
-    world = build_world(cfg)
+    world = world_from_config(cfg)
 
     # Use provided claim_id or default to first claim from config
     claim_id = (

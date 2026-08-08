@@ -9,34 +9,31 @@ and CLI), see [`docs/config.md`](config.md).
 
 ## Table of Contents
 
-- [Simulation Model](#simulation-model)
-  - [Table of Contents](#table-of-contents)
-  - [Overview](#overview)
-  - [Core Abstractions](#core-abstractions)
-    - [World](#world)
-    - [Agents](#agents)
-    - [Actions](#actions)
-    - [World Events](#world-events)
-    - [Memories](#memories)
-    - [Beliefs](#beliefs)
-    - [Trust](#trust)
-    - [Network](#network)
-  - [Information Channels](#information-channels)
-    - [Observation](#observation)
-    - [Verification](#verification)
-    - [Hearing](#hearing)
-  - [Agent Decision Model](#agent-decision-model)
-    - [Candidate actions](#candidate-actions)
-    - [Action scoring](#action-scoring)
-    - [Preferences and costs](#preferences-and-costs)
-  - [Belief Update Model](#belief-update-model)
-    - [Memory backlog](#memory-backlog)
-    - [Update equation](#update-equation)
-    - [Learning-rate calculation](#learning-rate-calculation)
-  - [Tick Lifecycle](#tick-lifecycle)
-  - [Telemetry Boundary](#telemetry-boundary)
-  - [Current Model Behavior](#current-model-behavior)
-  - [Current Limitations](#current-limitations)
+- [Overview](#overview)
+- [Tick Lifecycle](#tick-lifecycle)
+- [Core Abstractions](#core-abstractions)
+  - [World](#world)
+  - [Agents](#agents)
+  - [Actions](#actions)
+  - [World Events](#world-events)
+  - [Memories](#memories)
+  - [Beliefs](#beliefs)
+  - [Trust](#trust)
+  - [Network](#network)
+- [Information Channels](#information-channels)
+  - [Observation](#observation)
+  - [Verification](#verification)
+  - [Hearing](#hearing)
+- [Agent Decision Model](#agent-decision-model)
+  - [Candidate actions](#candidate-actions)
+  - [Action scoring](#action-scoring)
+  - [Preferences and costs](#preferences-and-costs)
+- [Belief Update Model](#belief-update-model)
+  - [Memory backlog](#memory-backlog)
+  - [Update equation](#update-equation)
+  - [Learning-rate calculation](#learning-rate-calculation)
+- [Current Model Behavior](#current-model-behavior)
+- [Current Limitations](#current-limitations)
 
 ## Overview
 
@@ -53,6 +50,41 @@ At a high level, the model combines three information channels:
 
 The implementation provides a configurable core for exploring information
 diffusion, belief updating, and action selection in networked populations.
+
+---
+
+## Tick Lifecycle
+
+A single tick of `World.step()` proceeds as follows:
+
+1. **Generate world events** — `generate_observation_events()` emits private
+   per-agent events plus an optional global event.
+2. **Deliver visible events** — `deliver_observation_events()` offers each event
+   to its `visible_agent_ids`; agents that notice it (per `observation_attention`)
+   encode it (per `observation_bias`) into an `OBSERVE` memory.
+3. **Choose and execute actions** — each agent selects one action via
+   `choose_action(world)` and executes it via `act(world, action)`. All new
+   memories for the tick are accumulated before any belief updating occurs.
+4. **Process memories** — each agent processes its pending memories and updates
+   beliefs (see [Belief Update Model](#belief-update-model)).
+5. **Snapshot** — the world produces a `Snapshot` and advances `tick`.
+
+The `Snapshot` contains:
+
+- the processed tick
+- the number of observation events emitted this tick
+- observed agent IDs
+- verified agent IDs
+- communication edges and broadcast edges
+- full belief state for all agents and claims
+- agent memory sizes
+- three agent-update counts: how many agents processed a new memory, how many
+  had a belief value change, and how many had a trust value change this tick.
+  These can diverge — a HEAR memory rejected by bounded confidence can still
+  update trust without moving belief (see [Trust](#trust)).
+
+The snapshot is consumed by visualization and other external tooling but does
+not affect simulation behavior.
 
 ---
 
@@ -231,8 +263,8 @@ its dynamics:
   controls whether that drift still happens for memories rejected by the
   confidence bound.
 
-See [`docs/config.md`](config.md#socialconfidence_bound) for the exact
-schema and defaults.
+See [`docs/config_reference.md`](config_reference.md#socialconfidence_bound)
+for the exact schema and defaults.
 
 ### Network
 
@@ -516,63 +548,6 @@ trust-modulated.
 
 ---
 
-## Tick Lifecycle
-
-A single tick of `World.step()` proceeds as follows:
-
-1. **Generate world events** — `generate_observation_events()` emits private
-   per-agent events plus an optional global event.
-2. **Deliver visible events** — `deliver_observation_events()` offers each event
-   to its `visible_agent_ids`; agents that notice it (per `observation_attention`)
-   encode it (per `observation_bias`) into an `OBSERVE` memory.
-3. **Choose and execute actions** — each agent selects one action via
-   `choose_action(world)` and executes it via `act(world, action)`. All new
-   memories for the tick are accumulated before any belief updating occurs.
-4. **Process memories** — each agent processes its pending memories and updates
-   beliefs (see [Belief Update Model](#belief-update-model)).
-5. **Snapshot** — the world produces a `Snapshot` and advances `tick`.
-
-The `Snapshot` contains:
-
-- the processed tick
-- the number of observation events emitted this tick
-- observed agent IDs
-- verified agent IDs
-- communication edges and broadcast edges
-- full belief state for all agents and claims
-- agent memory sizes
-- three agent-update counts: how many agents processed a new memory, how many
-  had a belief value change, and how many had a trust value change this tick.
-  These can diverge — a HEAR memory rejected by bounded confidence can still
-  update trust without moving belief (see [Trust](#trust)).
-
-The snapshot is consumed by visualization and telemetry but does not affect
-simulation behavior.
-
----
-
-## Telemetry Boundary
-
-Telemetry is not part of the agent decision model. It does not affect agent
-behavior, memory formation, belief updates, or world dynamics.
-
-After each call to `World.step()`, the returned `Snapshot` can be passed to
-`Telemetry`, which computes compact per-step metrics for analysis and experiment
-tracking. Current telemetry focuses on:
-
-- global belief distribution across all agents and claims
-- belief movement between consecutive snapshots
-- truth alignment against the world's known claims
-- event counts for observations, verifications, communications, and broadcasts
-- step runtime, when measured by the caller
-
-The simulation kernel remains responsible for producing state transitions;
-telemetry is responsible for measuring them. This separation lets future
-experiments compare scheduling strategies, delayed updates, budget constraints,
-or model-in-the-loop policies without changing the core belief update semantics.
-
----
-
 ## Current Model Behavior
 
 Qualitatively, the current system exhibits the following patterns:
@@ -610,7 +585,6 @@ Not yet modeled:
 - agent-specific perceptual noise (only systematic bias is modeled today)
 - memory decay or forgetting
 - action budgets / cooldowns / fatigue
-- telemetry is currently global rather than per-claim or per-agent
 - no explicit runtime constraints such as latency, compute budgets, or scheduling
   policies
 

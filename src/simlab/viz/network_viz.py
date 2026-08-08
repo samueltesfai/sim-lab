@@ -2,7 +2,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import time
 
-from simlab.sim import World, Snapshot
+from simlab.world import World
+from simlab.kernel_types import Snapshot
 from simlab.telemetry import Telemetry, TelemetryRow
 
 from simlab.viz.scene import build_scene

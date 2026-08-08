@@ -3,18 +3,28 @@ import random
 from collections import defaultdict
 
 from simlab.agent import Agent
+from simlab.config_schema import AgentSettings
 from simlab.world import World
-from simlab.types import Action, ActionType, Memory, MemoryType, ObservationEvent
+from simlab.kernel_types import Action, ActionType, Memory, MemoryType, ObservationEvent
 
 
 def _build_world(n: int = 5) -> World:
     agents = [Agent(i, rng_seed=i) for i in range(n)]
-    return World(agents=agents, truths={0: True}, rng_seed=1)
+    return World.from_dict(agents, {"truths": {0: True}, "rng_seed": 1})
 
 
 # ---------------------------------------------------------------------------
 # Initialization
 # ---------------------------------------------------------------------------
+
+
+def test_agent_init_consumes_every_settings_field(field_tracker):
+    """Every AgentSettings field must be read somewhere in Agent.__init__ --
+    otherwise a field could be added to the schema with no behavior wired up
+    for it, and nothing would notice."""
+    tracked = field_tracker(AgentSettings(), AgentSettings)
+    Agent(id=0, settings=tracked)
+    tracked.assert_fully_consumed()
 
 
 def test_agent_initialization():
@@ -46,14 +56,13 @@ def test_agent_initialization():
 
 def test_agent_custom_initialization():
     """Test Agent initialization with custom parameters."""
-    custom_preferences = {ActionType.VERIFY: 0.8, ActionType.BROADCAST: 0.6}
-    custom_costs = {ActionType.VERIFY: 0.4, ActionType.BROADCAST: 0.25}
+    custom_preferences = {"VERIFY": 0.8, "BROADCAST": 0.6}
+    custom_costs = {"VERIFY": 0.4, "BROADCAST": 0.25}
 
-    agent = Agent(
-        id=1,
+    agent = Agent.from_dict(
+        1,
+        {"action_preference": custom_preferences, "action_cost": custom_costs},
         rng_seed=100,
-        action_preference=custom_preferences,
-        action_cost=custom_costs,
     )
 
     assert agent.action_preference[ActionType.VERIFY] == 0.8
@@ -69,12 +78,16 @@ def test_agent_custom_initialization():
 
 def test_agent_social_params_stored_on_init():
     """Social parameters are stored as attributes on Agent."""
-    agent = Agent(
+    agent = Agent.from_dict(
         0,
+        {
+            "social": {
+                "confidence_bound": 0.4,
+                "trust_update_rate": 0.2,
+                "update_trust_on_rejection": False,
+            }
+        },
         rng_seed=0,
-        social_confidence_bound=0.4,
-        social_trust_update_rate=0.2,
-        social_update_trust_on_rejection=False,
     )
     assert agent.social_confidence_bound == pytest.approx(0.4)
     assert agent.social_trust_update_rate == pytest.approx(0.2)
@@ -324,8 +337,8 @@ def test_agent_update_beliefs(memory_seeder):
 
 def test_learning_rate_heterogeneity_affects_update_magnitude(memory_seeder):
     """Higher learning rate moves belief farther toward the same evidence."""
-    slow = Agent(0, rng_seed=0, learning_rate=0.01)
-    fast = Agent(1, rng_seed=1, learning_rate=0.5)
+    slow = Agent.from_dict(0, {"learning": {"rate": 0.01}}, rng_seed=0)
+    fast = Agent.from_dict(1, {"learning": {"rate": 0.5}}, rng_seed=1)
 
     for agent in (slow, fast):
         agent.beliefs[0] = 0.5
@@ -337,8 +350,8 @@ def test_learning_rate_heterogeneity_affects_update_magnitude(memory_seeder):
 
 def test_default_trust_heterogeneity_affects_heard_update(memory_seeder):
     """Higher default trust gives heard evidence more weight."""
-    low = Agent(0, rng_seed=0, default_trust=0.1)
-    high = Agent(1, rng_seed=1, default_trust=0.9)
+    low = Agent.from_dict(0, {"trust": {"default": 0.1}}, rng_seed=0)
+    high = Agent.from_dict(1, {"trust": {"default": 0.9}}, rng_seed=1)
 
     for agent in (low, high):
         agent.beliefs[0] = 0.5
@@ -357,7 +370,7 @@ def test_default_trust_heterogeneity_affects_heard_update(memory_seeder):
 
 def test_encode_observation_applies_bias():
     """encode_observation shifts evidence by the agent's perceptual bias."""
-    agent = Agent(0, rng_seed=0, observation_bias=0.1)
+    agent = Agent.from_dict(0, {"observation": {"bias": 0.1}}, rng_seed=0)
     event = ObservationEvent(
         id=0, tick=0, claim_id=0, evidence=0.5, visible_agent_ids=(0,)
     )
@@ -370,9 +383,13 @@ def test_attention_edge_cases_do_not_perturb_belief_rng():
         id=0, tick=0, claim_id=0, evidence=0.5, visible_agent_ids=(0,)
     )
 
-    always_attentive = Agent(0, rng_seed=42, observation_attention=1.0)
-    never_attentive = Agent(0, rng_seed=42, observation_attention=0.0)
-    quiet = Agent(0, rng_seed=42, observation_attention=1.0)
+    always_attentive = Agent.from_dict(
+        0, {"observation": {"attention": 1.0}}, rng_seed=42
+    )
+    never_attentive = Agent.from_dict(
+        0, {"observation": {"attention": 0.0}}, rng_seed=42
+    )
+    quiet = Agent.from_dict(0, {"observation": {"attention": 1.0}}, rng_seed=42)
 
     for _ in range(25):
         always_attentive.notices_observation(event)
@@ -389,7 +406,7 @@ def test_attention_edge_cases_do_not_perturb_belief_rng():
 
 def test_hear_inside_confidence_bound_updates_belief(memory_seeder):
     """HEAR within the confidence bound updates the belief normally."""
-    agent = Agent(0, rng_seed=0, social_confidence_bound=1.0)
+    agent = Agent.from_dict(0, {"social": {"confidence_bound": 1.0}}, rng_seed=0)
     agent.beliefs[0] = 0.5
     memory_seeder(
         agent, memory_type=MemoryType.HEAR, source=1, claim_id=0, evidence=0.8
@@ -401,7 +418,7 @@ def test_hear_inside_confidence_bound_updates_belief(memory_seeder):
 
 def test_hear_outside_confidence_bound_does_not_update_belief(memory_seeder):
     """HEAR farther than the confidence bound leaves the belief unchanged."""
-    agent = Agent(0, rng_seed=0, social_confidence_bound=0.1)
+    agent = Agent.from_dict(0, {"social": {"confidence_bound": 0.1}}, rng_seed=0)
     agent.beliefs[0] = 0.5
     memory_seeder(
         agent, memory_type=MemoryType.HEAR, source=1, claim_id=0, evidence=1.0
@@ -413,7 +430,7 @@ def test_hear_outside_confidence_bound_does_not_update_belief(memory_seeder):
 
 def test_observe_unaffected_by_confidence_bound(memory_seeder):
     """Bounded confidence applies only to HEAR; OBSERVE is always processed."""
-    agent = Agent(0, rng_seed=0, social_confidence_bound=0.0)
+    agent = Agent.from_dict(0, {"social": {"confidence_bound": 0.0}}, rng_seed=0)
     agent.beliefs[0] = 0.5
     memory_seeder(agent, memory_type=MemoryType.OBSERVE, claim_id=0, evidence=1.0)
     agent.update_beliefs()
@@ -423,7 +440,7 @@ def test_observe_unaffected_by_confidence_bound(memory_seeder):
 
 def test_verify_unaffected_by_confidence_bound(memory_seeder):
     """Bounded confidence applies only to HEAR; VERIFY is always processed."""
-    agent = Agent(0, rng_seed=0, social_confidence_bound=0.0)
+    agent = Agent.from_dict(0, {"social": {"confidence_bound": 0.0}}, rng_seed=0)
     agent.beliefs[0] = 0.5
     memory_seeder(agent, memory_type=MemoryType.VERIFY, claim_id=0, evidence=1.0)
     agent.update_beliefs()
@@ -434,7 +451,7 @@ def test_verify_unaffected_by_confidence_bound(memory_seeder):
 def test_confidence_bound_default_preserves_behavior(memory_seeder):
     """Default confidence_bound=1.0 never rejects HEAR evidence (max distance is 1)."""
     agent_default = Agent(0, rng_seed=0)
-    agent_open = Agent(0, rng_seed=0, social_confidence_bound=1.0)
+    agent_open = Agent.from_dict(0, {"social": {"confidence_bound": 1.0}}, rng_seed=0)
 
     for agent in (agent_default, agent_open):
         agent.beliefs[0] = 0.3
@@ -453,11 +470,10 @@ def test_confidence_bound_default_preserves_behavior(memory_seeder):
 
 def test_trust_increases_when_agreement_exceeds_current_trust(memory_seeder):
     """Trust increases when the source agrees more than the current trust level."""
-    agent = Agent(
+    agent = Agent.from_dict(
         0,
+        {"social": {"trust_update_rate": 0.5, "confidence_bound": 1.0}},
         rng_seed=0,
-        social_trust_update_rate=0.5,
-        social_confidence_bound=1.0,
     )
     agent.beliefs[0] = 0.5
     agent.trust[1] = 0.2
@@ -471,11 +487,10 @@ def test_trust_increases_when_agreement_exceeds_current_trust(memory_seeder):
 
 def test_trust_decreases_when_agreement_below_current_trust(memory_seeder):
     """Trust decreases when the source agrees less than the current trust level."""
-    agent = Agent(
+    agent = Agent.from_dict(
         0,
+        {"social": {"trust_update_rate": 0.5, "confidence_bound": 1.0}},
         rng_seed=0,
-        social_trust_update_rate=0.5,
-        social_confidence_bound=1.0,
     )
     agent.beliefs[0] = 0.5
     agent.trust[1] = 0.9
@@ -489,12 +504,16 @@ def test_trust_decreases_when_agreement_below_current_trust(memory_seeder):
 
 def test_rejected_hear_updates_trust_when_flag_true(memory_seeder):
     """Rejected HEAR updates trust when update_trust_on_rejection=True."""
-    agent = Agent(
+    agent = Agent.from_dict(
         0,
+        {
+            "social": {
+                "confidence_bound": 0.1,
+                "trust_update_rate": 0.5,
+                "update_trust_on_rejection": True,
+            }
+        },
         rng_seed=0,
-        social_confidence_bound=0.1,
-        social_trust_update_rate=0.5,
-        social_update_trust_on_rejection=True,
     )
     agent.beliefs[0] = 0.5
     agent.trust[1] = 0.9
@@ -509,12 +528,16 @@ def test_rejected_hear_updates_trust_when_flag_true(memory_seeder):
 
 def test_rejected_hear_does_not_update_trust_when_flag_false(memory_seeder):
     """Rejected HEAR does not update trust when update_trust_on_rejection=False."""
-    agent = Agent(
+    agent = Agent.from_dict(
         0,
+        {
+            "social": {
+                "confidence_bound": 0.1,
+                "trust_update_rate": 0.5,
+                "update_trust_on_rejection": False,
+            }
+        },
         rng_seed=0,
-        social_confidence_bound=0.1,
-        social_trust_update_rate=0.5,
-        social_update_trust_on_rejection=False,
     )
     agent.beliefs[0] = 0.5
     agent.trust[1] = 0.9
@@ -529,7 +552,7 @@ def test_rejected_hear_does_not_update_trust_when_flag_false(memory_seeder):
 
 def test_trust_update_rate_zero_leaves_trust_unchanged(memory_seeder):
     """Default trust_update_rate=0.0 never mutates trust."""
-    agent = Agent(0, rng_seed=0, social_trust_update_rate=0.0)
+    agent = Agent.from_dict(0, {"social": {"trust_update_rate": 0.0}}, rng_seed=0)
     agent.beliefs[0] = 0.5
     agent.trust[1] = 0.7
     memory_seeder(

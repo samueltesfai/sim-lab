@@ -1,16 +1,17 @@
 import pytest
 import tempfile
 import os
+import yaml
 from unittest.mock import patch
-from omegaconf import OmegaConf
 
-from simlab.main import main
+from simlab.config import validate_config
+from simlab.viz_cli import main
 
 
 def create_test_config_file(config_dict: dict) -> str:
     """Create a temporary YAML config file for testing."""
     with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-        OmegaConf.save(config_dict, f.name)
+        yaml.dump(config_dict, f)
         return f.name
 
 
@@ -48,10 +49,10 @@ def test_main_with_real_config_loading():
     config_path = create_test_config_file(config_dict)
 
     try:
-        with patch("simlab.main.run_viz") as mock_run_viz:
+        with patch("simlab.viz_cli.run_viz") as mock_run_viz:
             with patch(
                 "sys.argv",
-                ["python -m simlab", "--config", config_path, "--steps", "2"],
+                ["simlab-viz", "--config", config_path, "--steps", "2"],
             ):
                 main()
 
@@ -106,7 +107,7 @@ def test_main_telemetry_export_integration():
         jsonl_path = os.path.join(temp_dir, "test.jsonl")
 
         try:
-            with patch("simlab.main.run_viz") as mock_run_viz:
+            with patch("simlab.viz_cli.run_viz") as mock_run_viz:
                 # Simulate run_viz that actually records some telemetry
                 def simulate_run_viz(world, steps, telemetry, **kwargs):
                     # Record initial state
@@ -121,7 +122,7 @@ def test_main_telemetry_export_integration():
                 with patch(
                     "sys.argv",
                     [
-                        "python -m simlab",
+                        "simlab-viz",
                         "--config",
                         config_path,
                         "--steps",
@@ -154,32 +155,30 @@ def test_main_telemetry_export_integration():
             os.unlink(config_path)
 
 
-@patch("simlab.main.run_viz")
-@patch("simlab.main.load_config")
+@patch("simlab.viz_cli.run_viz")
+@patch("simlab.viz_cli.load_config")
 def test_main_handles_run_viz_exceptions(mock_load_config, mock_run_viz):
     """Test that main properly handles exceptions from run_viz."""
-    mock_cfg = OmegaConf.create(
-        {
-            "world": {
-                "rng_seed": 42,
-                "observation": {"private_event_rate": 0.1, "global_event_rate": 0.0},
-                "truths": {0: True},
-                "noise": {"OBSERVE": 0.0, "HEAR": 0.0, "VERIFY": 0.0},
+    mock_cfg = {
+        "world": {
+            "rng_seed": 42,
+            "observation": {"private_event_rate": 0.1, "global_event_rate": 0.0},
+            "truths": {0: True},
+            "noise": {"OBSERVE": 0.0, "HEAR": 0.0, "VERIFY": 0.0},
+        },
+        "agent": {
+            "defaults": {
+                "action_preference": {"IDLE": 0.0},
+                "action_cost": {"IDLE": 0.0},
             },
-            "agent": {
-                "defaults": {
-                    "action_preference": {"IDLE": 0.0},
-                    "action_cost": {"IDLE": 0.0},
-                },
-                "profiles": [{"name": "default", "count": 1}],
-            },
-        }
-    )
-    mock_load_config.return_value = mock_cfg
+            "profiles": [{"name": "default", "count": 1}],
+        },
+    }
+    mock_load_config.return_value = validate_config(mock_cfg)
 
     # Test that exceptions from run_viz are propagated
     mock_run_viz.side_effect = RuntimeError("Visualization error")
 
-    with patch("sys.argv", ["python -m simlab", "--steps", "1"]):
+    with patch("sys.argv", ["simlab-viz", "--steps", "1"]):
         with pytest.raises(RuntimeError, match="Visualization error"):
             main()

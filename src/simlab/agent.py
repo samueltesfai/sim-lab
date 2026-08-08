@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-from collections import defaultdict
 import random
+from collections import defaultdict
 from typing import TYPE_CHECKING
 
-from simlab.types import (
+from simlab._merge import deep_merge
+from simlab.config_schema import AgentSettings
+from simlab.kernel_types import (
     Action,
     ActionType,
     AgentUpdateTrace,
@@ -21,69 +23,87 @@ if TYPE_CHECKING:
     from simlab.world import World
 
 
+_DEFAULT_AGENT_SETTINGS: dict = AgentSettings().model_dump()
+
+
 class Agent:
     def __init__(
         self,
         id: int,
+        settings: AgentSettings | None = None,
         rng_seed: int = 0,
-        action_preference: dict[ActionType, float] | None = None,
-        action_cost: dict[ActionType, float] | None = None,
         profile_name: str = "default",
-        observation_attention: float = 1.0,
-        observation_bias: float = 0.0,
-        default_trust: float = 0.5,
-        learning_rate: float = 0.1,
-        observe_weight: float = 0.6,
-        hear_weight: float = 0.3,
-        verify_weight: float = 1.0,
-        social_confidence_bound: float = 1.0,
-        social_trust_update_rate: float = 0.0,
-        social_update_trust_on_rejection: bool = True,
     ):
         self.id = id
         self.rng = random.Random(rng_seed)
         self.profile_name = profile_name
+        settings = settings or AgentSettings()
 
         # Cognition parameters: how this kind of mind perceives and learns.
-        self.observation_attention = observation_attention  # P(notice an event)
-        self.observation_bias = observation_bias  # systematic perceptual bias
-        self.default_trust = default_trust  # trust for unseen agents
-        self.learning_rate = learning_rate  # global plasticity
-        self.observe_weight = observe_weight  # channel weight for OBSERVE
-        self.hear_weight = hear_weight  # channel weight for HEAR
-        self.verify_weight = verify_weight  # channel weight for VERIFY
+        self.observation_attention = (
+            settings.observation.attention
+        )  # P(notice an event)
+        self.observation_bias = settings.observation.bias  # systematic perceptual bias
+        self.default_trust = settings.trust.default  # trust for unseen agents
+        self.learning_rate = settings.learning.rate  # global plasticity
+        self.observe_weight = settings.learning.observe_weight  # weight for OBSERVE
+        self.hear_weight = settings.learning.hear_weight  # channel weight for HEAR
+        self.verify_weight = settings.learning.verify_weight  # weight for VERIFY
         self.social_confidence_bound = (
-            social_confidence_bound  # max distance for HEAR to update belief
-        )
+            settings.social.confidence_bound
+        )  # max distance for HEAR to update belief
         self.social_trust_update_rate = (
-            social_trust_update_rate  # rate of dynamic trust adjustment
-        )
+            settings.social.trust_update_rate
+        )  # rate of dynamic trust adjustment
         self.social_update_trust_on_rejection = (
-            social_update_trust_on_rejection  # update trust even when HEAR rejected
-        )
+            settings.social.update_trust_on_rejection
+        )  # update trust even when HEAR rejected
 
         self.beliefs: defaultdict[int, float] = defaultdict(lambda: self.rng.random())
         self.trust: defaultdict[int, float] = defaultdict(lambda: self.default_trust)
         self.memory: list[Memory] = []
         self._mem_cursor = 0  # Cursor to track memories for belief updates
-        default_action_preference = {
-            ActionType.IDLE: 0.0,
-            ActionType.VERIFY: 0.9,
-            ActionType.COMMUNICATE: 0.7,
-            ActionType.BROADCAST: 0.5,
+        self.action_preference: dict[ActionType, float] = {
+            ActionType[k]: v for k, v in settings.action_preference.items()
+        }
+        self.action_cost: dict[ActionType, float] = {
+            ActionType[k]: v for k, v in settings.action_cost.items()
         }
 
-        default_action_cost = {
-            ActionType.IDLE: 0.0,
-            ActionType.VERIFY: 0.35,
-            ActionType.COMMUNICATE: 0.15,
-            ActionType.BROADCAST: 0.30,
-        }
-        self.action_preference: dict[ActionType, float] = default_action_preference | (
-            action_preference or {}
-        )
-        self.action_cost: dict[ActionType, float] = default_action_cost | (
-            action_cost or {}
+    @classmethod
+    def from_dict(
+        cls,
+        id: int,
+        raw: dict | None = None,
+        *,
+        rng_seed: int = 0,
+        profile_name: str = "default",
+    ) -> Agent:
+        """Ad-hoc/direct construction entry point: ``raw`` is a possibly
+        partial settings dict (e.g. ``{"learning": {"rate": 0.01}}``).
+
+        Deep-merged onto full defaults before validating -- unlike nested
+        settings sections, a dict-typed field like ``action_preference``
+        gets replaced wholesale by plain ``model_validate`` on partial
+        input, not merged key-by-key.
+
+        :param id: The agent's unique identifier
+        :type id: int
+        :param raw: A possibly partial settings dict
+        :type raw: dict | None
+        :param rng_seed: Seed for the agent's own RNG
+        :type rng_seed: int
+        :param profile_name: The profile name to record on the agent
+        :type profile_name: str
+        :return: The constructed agent
+        :rtype: Agent
+        """
+        merged = deep_merge(_DEFAULT_AGENT_SETTINGS, raw or {})
+        return cls(
+            id=id,
+            settings=AgentSettings.model_validate(merged),
+            rng_seed=rng_seed,
+            profile_name=profile_name,
         )
 
     def __repr__(self):
