@@ -8,6 +8,28 @@ changed kernel) gets its own new `<date>-<slug>.ipynb` file so the series
 stays a readable history of how the simulation's behavior has evolved,
 without digging through git blame on a single mutated file.
 
+## Starting a new investigation
+
+Copy `_template.ipynb` to `<date>-<slug>.ipynb`, edit the sections marked
+`EDIT:`, run it end-to-end, then add a row to the index below. `_template.ipynb`
+itself stays blank (no outputs, no investigation-specific commentary) so it's
+always a clean starting point -- specific findings and "Reading this"
+commentary belong only in the dated copy.
+
+## The `kernel_commit_on_main` rule
+
+Every notebook's reproducibility header checks whether the most recent
+commit touching `src/simlab` is reachable from `main`, and prints a loud
+warning if not. **Only commit a dated notebook to this directory once that
+check prints `True`.** A notebook attributed to kernel code still sitting on
+an unmerged branch references code that can be rebased, squashed, or
+force-pushed away -- silently invalidating what the notebook claims to have
+measured. The check deliberately looks at the kernel code's own last commit,
+not `HEAD` (which also includes the notebook's own not-yet-merged commit and
+would make the check impossible to satisfy before its own PR merges).
+
+## Index
+
 Each notebook's own reproducibility header (its first code cells) records
 the exact git commit, branch, and dirty state it was run against -- that's
 the authoritative version record. The table below is just an index for
