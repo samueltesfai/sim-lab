@@ -13,6 +13,7 @@ from simlab.config import (
     world_from_config,
     load_config,
 )
+from simlab.config_schema import SimConfig
 from simlab.run_analysis import (
     RunSummary,
     compute_run_summary,
@@ -115,6 +116,33 @@ def _fingerprint(data: dict[str, Any]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def compute_scenario_fingerprint(cfg: SimConfig) -> str:
+    """Fingerprint the behaviorally meaningful part of a resolved config --
+    excludes ``rng_seed`` (different seeds are stochastic replicates of the
+    same scenario, not different scenarios) and profile names (reporting-only
+    labels). Two configs that resolve to the same fingerprint produce the
+    same distribution of outcomes, so callers building many scenarios (e.g.
+    a sweep) can use this to detect and skip ones that duplicate an earlier
+    one instead of re-running and double-counting it.
+
+    :param cfg: A resolved, validated config
+    :type cfg: SimConfig
+    :return: The scenario fingerprint, matching ``execute_run``'s
+        ``RunMetadata.scenario_fingerprint`` for the same config
+    :rtype: str
+    """
+    per_agent_settings = [
+        profile.model_dump(exclude={"name", "count"})
+        for profile in expand_agent_specs(cfg)
+    ]
+    return _fingerprint(
+        {
+            "world": cfg.world.model_dump(exclude={"rng_seed"}),
+            "agents": per_agent_settings,
+        }
+    )
+
+
 def execute_run(request: RunRequest) -> RunResult:
     """
     Run a simulation headlessly, with no visualization or console output.
@@ -140,18 +168,7 @@ def execute_run(request: RunRequest) -> RunResult:
     cfg = load_config(request.config_path)
     world = world_from_config(cfg)
     resolved_config: dict[str, Any] = cfg.model_dump()
-    # world_from_config only consumes the flattened per-agent list, never
-    # profile boundaries -- fingerprint that, not the raw profile list
-    per_agent_settings = [
-        profile.model_dump(exclude={"name", "count"})
-        for profile in expand_agent_specs(cfg)
-    ]
-    scenario_fingerprint = _fingerprint(
-        {
-            "world": cfg.world.model_dump(exclude={"rng_seed"}),
-            "agents": per_agent_settings,
-        }
-    )
+    scenario_fingerprint = compute_scenario_fingerprint(cfg)
     world_seed = cfg.world.rng_seed
     run_spec_fingerprint = _fingerprint(
         {

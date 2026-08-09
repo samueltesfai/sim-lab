@@ -19,6 +19,7 @@ pytest.importorskip("sklearn")
 from simlab.runner import SCHEMA_VERSION  # noqa: E402
 from sweep_utils import (  # noqa: E402
     between_scenario_variance_share,
+    dedupe_scenarios,
     expand_ofat_scenarios,
     plot_parameter_response,
     plot_predictability,
@@ -94,6 +95,40 @@ def test_expand_ofat_scenarios_does_not_mutate_baseline_cfg():
     expand_ofat_scenarios(BASELINE_CFG, ATTENTION_AXIS)
 
     assert "observation" not in BASELINE_CFG["agent"]["defaults"]
+
+
+# ---------------------------------------------------------------------------
+# dedupe_scenarios
+# ---------------------------------------------------------------------------
+
+
+def test_dedupe_scenarios_drops_duplicate_resolved_config():
+    # "attention:high" sets attention=1.0 explicitly, which is also the
+    # schema default baseline gets by leaving it unset -- same resolved
+    # config, so it's a genuine duplicate of "baseline".
+    scenarios = expand_ofat_scenarios(BASELINE_CFG, ATTENTION_AXIS)
+
+    kept, duplicate_of = dedupe_scenarios(scenarios)
+
+    assert [s["id"] for s in kept] == ["baseline", "attention:low"]
+    assert duplicate_of == {"attention:high": "baseline"}
+
+
+def test_dedupe_scenarios_no_duplicates_returns_all_and_empty_map():
+    scenarios = [
+        {
+            "id": "baseline",
+            "group": "baseline",
+            "swept_axis": None,
+            "label": "baseline",
+            "cfg": BASELINE_CFG,
+        }
+    ]
+
+    kept, duplicate_of = dedupe_scenarios(scenarios)
+
+    assert kept == scenarios
+    assert duplicate_of == {}
 
 
 # ---------------------------------------------------------------------------

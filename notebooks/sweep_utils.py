@@ -33,7 +33,13 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.model_selection import GroupKFold, cross_val_score
 
 from simlab._merge import deep_merge
-from simlab.runner import SCHEMA_VERSION, RunRequest, execute_run
+from simlab.config import validate_config
+from simlab.runner import (
+    SCHEMA_VERSION,
+    RunRequest,
+    compute_scenario_fingerprint,
+    execute_run,
+)
 
 
 def _git(*args: str) -> str:
@@ -163,6 +169,41 @@ def expand_ofat_scenarios(
                 }
             )
     return scenarios
+
+
+def dedupe_scenarios(scenarios: list[dict]) -> tuple[list[dict], dict[str, str]]:
+    """Drop scenarios whose resolved config is behaviorally identical to an
+    earlier one in the list (same ``scenario_fingerprint``), so a hand-built
+    grid or axis that happens to retrace a combination already covered
+    elsewhere isn't re-run and double-counted in downstream aggregates.
+
+    First occurrence of a given fingerprint wins and is kept; every later
+    scenario with that fingerprint is dropped. This makes duplicates a
+    property the code discovers from the resolved configs themselves, rather
+    than something a scenario list's author has to work out by hand and keep
+    in sync as axes or grid values change.
+
+    :param scenarios: Scenario dicts, each with ``{"id", ..., "cfg"}`` (see
+        :func:`expand_ofat_scenarios`)
+    :type scenarios: list[dict]
+    :return: The deduplicated scenario list (original order, first occurrence
+        of each fingerprint kept), and a ``dropped scenario id -> kept
+        scenario id`` map for looking up what a dropped scenario's data is
+        identical to
+    :rtype: tuple[list[dict], dict[str, str]]
+    """
+    kept: list[dict] = []
+    duplicate_of: dict[str, str] = {}
+    seen_fingerprint_to_id: dict[str, str] = {}
+    for scenario in scenarios:
+        fingerprint = compute_scenario_fingerprint(validate_config(scenario["cfg"]))
+        existing_id = seen_fingerprint_to_id.get(fingerprint)
+        if existing_id is not None:
+            duplicate_of[scenario["id"]] = existing_id
+            continue
+        seen_fingerprint_to_id[fingerprint] = scenario["id"]
+        kept.append(scenario)
+    return kept, duplicate_of
 
 
 def run_sweep(
