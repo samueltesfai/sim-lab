@@ -1,18 +1,19 @@
-"""Reusable helpers for investigation notebooks under ``notebooks/experiments/``.
+"""Reusable helpers for investigation notebooks under ``notebooks/``.
 
 Each investigation notebook answers its own question and is free to structure
 itself however that requires -- this module holds only the mechanical parts
 that don't change between investigations: the reproducibility header, running
 a scenario x seed sweep through :func:`simlab.runner.execute_run`, the
 scenario-vs-seed variance decomposition, and a grouped-CV predictability
-probe (plus matching plot helpers). See ``notebooks/experiments/README.md``
-for how a notebook is expected to use these.
+probe (plus matching plot helpers). See ``notebooks/README.md`` for how a
+notebook is expected to use these.
 
-``scikit-learn`` is imported lazily inside :func:`predictability_probe`, not
-at module level, so importing this module never requires it -- it's part of
-this project's "notebook" uv dependency group, not a core dependency (mirrors
-how ``simlab.runner.main`` lazily imports ``simlab.experiment_io`` so the
-library API doesn't pull in file-writing code).
+Lives here rather than in ``src/simlab`` because nothing in it is used by the
+CLI or by a single ``execute_run()`` call -- it exists only to orchestrate
+and compare *many* runs for notebook analysis, not a kernel concern. That
+also means scikit-learn is a normal import below rather than a lazy one:
+anywhere this module gets loaded already has the project's "notebook" uv
+dependency group installed.
 """
 
 from __future__ import annotations
@@ -24,8 +25,12 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Any
 
+import matplotlib.pyplot as plt
 import pandas as pd
 import yaml
+from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+from sklearn.linear_model import LinearRegression, LogisticRegression
+from sklearn.model_selection import GroupKFold, cross_val_score
 
 from simlab._merge import deep_merge
 from simlab.runner import SCHEMA_VERSION, RunRequest, execute_run
@@ -59,12 +64,12 @@ def reproducibility_header(experiment_name: str) -> dict[str, Any]:
     not-yet-merged commit -- checking that would be circular, since it can't
     be on ``main`` before its own PR merges). ``kernel_commit_on_main`` is
     only true once that kernel commit is both reachable from ``main`` and
-    ``src/simlab`` has no uncommitted changes -- see
-    ``notebooks/experiments/README.md`` for the rule this backs: only commit
-    a dated notebook once this prints ``True``.
+    ``src/simlab`` has no uncommitted changes -- see ``notebooks/README.md``
+    for the rule this backs: only commit a dated notebook once this prints
+    ``True``.
 
     :param experiment_name: This notebook's own identifier, conventionally
-        matching its filename (``notebooks/experiments/<date>-<slug>.ipynb``)
+        matching its filename (``notebooks/<date>-<slug>.ipynb``)
     :type experiment_name: str
     :return: The printed fields, keyed the same as what's printed
     :rtype: dict[str, Any]
@@ -73,8 +78,8 @@ def reproducibility_header(experiment_name: str) -> dict[str, Any]:
     git_commit = _git("rev-parse", "HEAD")
     git_dirty = bool(_git("status", "--porcelain"))
     # ":/" anchors the pathspec to the repo root regardless of the caller's
-    # cwd (typically notebooks/experiments/), which a plain "src/simlab"
-    # would silently miss.
+    # cwd (typically notebooks/), which a plain "src/simlab" would silently
+    # miss.
     kernel_commit = _git("log", "-1", "--format=%H", "--", ":/src/simlab")
     kernel_path_clean = _is_clean(":/src/simlab")
     kernel_commit_on_main = (
@@ -109,7 +114,7 @@ def reproducibility_header(experiment_name: str) -> dict[str, Any]:
     elif not kernel_commit_on_main:
         print()
         print("WARNING: kernel_commit is not reachable from main. Do not commit this")
-        print("notebook to notebooks/experiments/ until the kernel code it exercised")
+        print("notebook to notebooks/ until the kernel code it exercised")
         print("has actually merged to main -- rerun this cell after that merge to")
         print("confirm a stable, permanent commit reference.")
 
@@ -287,9 +292,6 @@ def predictability_probe(
     undefined for runs that never converge) doesn't shrink the sample used
     for every other target too.
 
-    Requires scikit-learn (this project's "notebook" uv dependency group);
-    imported lazily so importing this module doesn't require it.
-
     :param df: A run-level table containing ``feature_cols``, the targets,
         and ``group_col``
     :type df: pd.DataFrame
@@ -315,10 +317,6 @@ def predictability_probe(
         wasn't given or was constant
     :rtype: tuple[pd.DataFrame, dict[str, Any] | None]
     """
-    from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
-    from sklearn.linear_model import LinearRegression, LogisticRegression
-    from sklearn.model_selection import GroupKFold, cross_val_score
-
     gkf = GroupKFold(n_splits=n_splits)
 
     regression_results = []
@@ -389,8 +387,6 @@ def plot_variance_shares(shares: dict[str, float]):
     :type shares: dict[str, float]
     :return: The created figure
     """
-    import matplotlib.pyplot as plt
-
     fig, ax = plt.subplots(figsize=(7, 4))
     ax.bar(list(shares.keys()), list(shares.values()), color="tab:blue")
     ax.axhline(0.5, color="gray", linestyle="--", linewidth=1)
@@ -423,8 +419,6 @@ def plot_parameter_response(
     :type title: str | None
     :return: The created figure
     """
-    import matplotlib.pyplot as plt
-
     axes_list = list(df.swept_axis.dropna().unique())
     n_axes = len(axes_list)
     ncols = min(4, n_axes) or 1
@@ -475,8 +469,6 @@ def plot_predictability(
     :type classification_result: dict[str, Any] | None
     :return: The created figure
     """
-    import matplotlib.pyplot as plt
-
     if classification_result is not None:
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 4))
     else:

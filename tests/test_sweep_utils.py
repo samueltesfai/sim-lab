@@ -10,8 +10,14 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import pytest
 
-from simlab.runner import SCHEMA_VERSION
-from simlab.sweep import (
+# sweep_utils imports scikit-learn at module level (it's meant to be loaded
+# only from a notebook context, where the "notebook" uv dependency group is
+# already installed) -- skip this whole file gracefully rather than fail
+# collection when running the base test suite without that group.
+pytest.importorskip("sklearn")
+
+from simlab.runner import SCHEMA_VERSION  # noqa: E402
+from sweep_utils import (  # noqa: E402
     between_scenario_variance_share,
     expand_ofat_scenarios,
     plot_parameter_response,
@@ -196,7 +202,6 @@ def _synthetic_scenario_rows(
 
 
 def test_predictability_probe_regression_and_classification_shapes():
-    pytest.importorskip("sklearn")
     df = _synthetic_scenario_rows()
 
     regression_df, classification = predictability_probe(
@@ -217,7 +222,6 @@ def test_predictability_probe_regression_and_classification_shapes():
 
 
 def test_predictability_probe_skips_constant_binary_target():
-    pytest.importorskip("sklearn")
     df = _synthetic_scenario_rows()
     df["flag"] = 1  # constant -- nothing for a classifier to learn
 
@@ -229,7 +233,6 @@ def test_predictability_probe_skips_constant_binary_target():
 
 
 def test_predictability_probe_no_binary_target_skips_classification():
-    pytest.importorskip("sklearn")
     df = _synthetic_scenario_rows()
 
     _, classification = predictability_probe(
@@ -240,7 +243,6 @@ def test_predictability_probe_no_binary_target_skips_classification():
 
 
 def test_predictability_probe_drops_na_per_target_independently():
-    pytest.importorskip("sklearn")
     df = _synthetic_scenario_rows()
     df.loc[df["x"] == 0.0, "z"] = None
     df.loc[df["x"] != 0.0, "z"] = df.loc[df["x"] != 0.0, "y"]

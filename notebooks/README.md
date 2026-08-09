@@ -13,8 +13,13 @@ without digging through git blame on a single mutated file.
 There's no template to copy. Each notebook answers its own question and is
 free to structure itself however that requires -- which diagnostics to run,
 in what order, with what commentary. What's shared across investigations is
-the mechanical, non-narrative code, and that lives in `simlab.sweep` instead
-of being reimplemented (or silently redone slightly wrong) per notebook:
+the mechanical, non-narrative code, and that lives in `sweep_utils.py`
+(right here in this directory, so `import sweep_utils` works directly --
+Jupyter's kernel cwd is the notebook's own directory) instead of being
+reimplemented (or silently redone slightly wrong) per notebook. It lives
+here rather than in `src/simlab` because nothing in it is used by the CLI
+or by a single `execute_run()` call -- it's multi-run orchestration for
+notebook analysis, not a kernel concern:
 
 - `reproducibility_header(experiment_name)` -- call this first; see the rule
   below.
@@ -24,15 +29,14 @@ of being reimplemented (or silently redone slightly wrong) per notebook:
   decomposition.
 - `predictability_probe(df, feature_cols, regression_targets, binary_target)`
   -- grouped-CV linear/random-forest probe. Requires the `notebook` uv
-  dependency group (`uv run --group notebook ...`); scikit-learn is a lazy
-  import inside it, not a core dependency of the package.
+  dependency group (`uv run --group notebook ...`).
 - `plot_variance_shares` / `plot_parameter_response` / `plot_predictability`
   -- matching plots.
 
 See `2026-08-08-baseline-behavior-sweep.ipynb` for a worked example, or
-`src/simlab/sweep.py` for full function docs. If a new investigation needs a
+`sweep_utils.py` for full function docs. If a new investigation needs a
 pattern that isn't in there yet (e.g. Latin-hypercube sampling instead of
-OFAT), write it in the notebook first -- only promote it into `simlab.sweep`
+OFAT), write it in the notebook first -- only promote it into `sweep_utils.py`
 once a second notebook actually needs the same thing, so the module doesn't
 accumulate speculative generality ahead of real reuse.
 
