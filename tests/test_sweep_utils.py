@@ -16,6 +16,7 @@ import pytest
 # collection when running the base test suite without that group.
 pytest.importorskip("sklearn")
 
+from simlab._merge import deep_merge  # noqa: E402
 from simlab.runner import SCHEMA_VERSION  # noqa: E402
 from sweep_utils import (  # noqa: E402
     between_scenario_variance_share,
@@ -112,6 +113,31 @@ def test_dedupe_scenarios_drops_duplicate_resolved_config():
 
     assert [s["id"] for s in kept] == ["baseline", "attention:low"]
     assert duplicate_of == {"attention:high": "baseline"}
+
+
+def test_dedupe_scenarios_rejects_duplicate_ids():
+    scenarios = [
+        {
+            "id": "baseline",
+            "group": "baseline",
+            "swept_axis": None,
+            "label": "baseline",
+            "cfg": BASELINE_CFG,
+        },
+        {
+            "id": "baseline",
+            "group": "ofat",
+            "swept_axis": "attention",
+            "label": "low",
+            "cfg": deep_merge(
+                BASELINE_CFG,
+                {"agent": {"defaults": {"observation": {"attention": 0.2}}}},
+            ),
+        },
+    ]
+
+    with pytest.raises(ValueError, match="baseline"):
+        dedupe_scenarios(scenarios)
 
 
 def test_dedupe_scenarios_no_duplicates_returns_all_and_empty_map():

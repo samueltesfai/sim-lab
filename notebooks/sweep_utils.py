@@ -21,6 +21,7 @@ from __future__ import annotations
 import os
 import subprocess
 import tempfile
+from collections import Counter
 from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Any
@@ -191,7 +192,20 @@ def dedupe_scenarios(scenarios: list[dict]) -> tuple[list[dict], dict[str, str]]
         scenario id`` map for looking up what a dropped scenario's data is
         identical to
     :rtype: tuple[list[dict], dict[str, str]]
+    :raises ValueError: if two scenarios share the same ``id`` -- both this
+        function's own ``duplicate_of`` map and every downstream consumer
+        (``run_sweep``'s per-run file naming and trajectory dict,
+        ``scenario_id``-grouped analysis) key off ``id`` assuming it's
+        unique, so a collision would otherwise merge two distinct scenarios
+        together silently instead of failing loudly
     """
+    id_counts = Counter(scenario["id"] for scenario in scenarios)
+    duplicate_ids = sorted(id for id, count in id_counts.items() if count > 1)
+    if duplicate_ids:
+        raise ValueError(
+            f"scenario ids must be unique, found duplicates: {duplicate_ids}"
+        )
+
     kept: list[dict] = []
     duplicate_of: dict[str, str] = {}
     seen_fingerprint_to_id: dict[str, str] = {}
