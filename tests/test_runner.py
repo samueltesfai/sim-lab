@@ -4,7 +4,8 @@ import tempfile
 import pytest
 import yaml
 
-from simlab.runner import RunRequest, execute_run
+from simlab.config import load_config
+from simlab.runner import RunRequest, compute_scenario_fingerprint, execute_run
 
 CONFIG_DICT = {
     "world": {
@@ -142,6 +143,19 @@ def test_execute_run_uses_provided_run_id(config_path):
     result = execute_run(RunRequest(config_path=config_path, steps=1, run_id="my-run"))
 
     assert result.metadata.run_id == "my-run"
+
+
+def test_compute_scenario_fingerprint_matches_execute_run(config_path):
+    """compute_scenario_fingerprint, called directly on a resolved config,
+    must agree with what execute_run computes internally for the same
+    config -- guards the two from drifting apart if one changes without
+    the other."""
+    cfg = load_config(config_path)
+    direct_fingerprint = compute_scenario_fingerprint(cfg)
+
+    result = execute_run(RunRequest(config_path=config_path, steps=0))
+
+    assert direct_fingerprint == result.metadata.scenario_fingerprint
 
 
 def test_execute_run_fingerprints_are_stable(config_path):
